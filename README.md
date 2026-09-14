@@ -1,4 +1,4 @@
-# Investment Research Agent
+# Not Financial Advice: An Autonomous Investment Research Agent
 
 An agentic AI system that researches a stock: given a ticker symbol, it plans its own research steps, pulls prices, fundamentals, and news through tools, writes an analysis, evaluates and refines that analysis, and carries notes forward to improve the next run.
 
@@ -73,7 +73,7 @@ Each rubric requirement maps to one component, and each component has its own se
 ### Repository structure
 
 ```
-investment-research-agent/
+not-financial-advice/
 ├── notebook.ipynb     # the deliverable; sections mirror the table above
 ├── src/               # llm.py, tools.py, chain.py, route.py, evaluate.py, agent.py
 ├── data/cache/        # committed JSON responses from yfinance
@@ -93,8 +93,8 @@ Getting reliable structured (JSON) output from the LLM, since the classifier, ro
 Full instructions in [`setup.md`](setup.md). The short version:
 
 ```bash
-git clone https://github.com/nazeshinjite/investment-research-agent.git
-cd investment-research-agent
+git clone https://github.com/nazeshinjite/not-financial-advice.git
+cd not-financial-advice
 uv sync                      # creates .venv and installs pinned dependencies
 cp .env.example .env         # then fill in LLM_BASE_URL, LLM_MODEL, LLM_API_KEY
 uv run jupyter lab           # open notebook.ipynb
