@@ -1,0 +1,15 @@
+# Secrets: API keys never get committed
+.env
+.env.*
+!.env.example
+
+# Python / uv environment (pyproject.toml and uv.lock are committed)
+.venv/
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
