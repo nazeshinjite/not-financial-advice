@@ -58,24 +58,27 @@ All market data comes from Yahoo Finance through the `yfinance` package: daily p
 
 ### How the work is organized
 
-Each rubric requirement maps to one component, and each component has its own section of the notebook.
+The notebook is the deliverable and the grader reads it as a PDF, so every graded behavior is implemented as code cells in the notebook itself, under a heading that names the requirement, followed by the cells that run it and plot it. Only plumbing that no rubric line is about lives in `src/`: the LLM wrapper and the cached data tools. During development each component is built in its own notebook under `dev/`, so four people can commit in parallel without editing one file; the final notebook is assembled from those in the last week.
 
-| Requirement | Component | Demonstrated by |
+| Requirement | Where it lives | Demonstrated by |
 |---|---|---|
-| Prompt chaining | `src/chain.py` | Per-article labels table; sentiment chart |
-| Routing | `src/route.py` | Routing-decision table for a mixed batch |
-| Evaluator-optimizer | `src/evaluate.py` | Score per iteration plot; before/after excerpt |
-| Agent plans | `src/agent.py` | The printed plan for a symbol |
-| Agent uses tools dynamically | `src/agent.py` + `src/tools.py` | Tool-call log per run |
-| Agent self-reflects | `src/evaluate.py` + reflection note | Reflection output on the final report |
-| Agent learns across runs | `memory/memory.json` | Two runs on one symbol; memory diff and the changed plan |
+| Prompt chaining | Notebook section 1 (code cells) | Per-article labels table; sentiment chart |
+| Routing | Notebook section 2 (code cells) | Routing-decision table for a mixed batch |
+| Evaluator-optimizer | Notebook section 3 (code cells) | Score per iteration plot; before/after excerpt |
+| Agent plans | Notebook section 4, `ResearchAgent.plan` | The printed plan for a symbol |
+| Agent uses tools dynamically | Notebook section 4, `ResearchAgent.run` + `src/tools.py` | Tool-call log per run |
+| Agent self-reflects | Notebook section 4, reusing the section 3 evaluator | Reflection output on the final report |
+| Agent learns across runs | Notebook section 4 + `memory/memory.json` | Two runs on one symbol; memory diff and the changed plan |
 
 ### Repository structure
 
 ```
 not-financial-advice/
-├── notebook.ipynb     # the deliverable; sections mirror the table above
-├── src/               # llm.py, tools.py, chain.py, route.py, evaluate.py, agent.py
+├── notebook.ipynb     # the deliverable: all workflow and agent code, runs, and figures
+├── src/
+│   ├── llm.py         # chat() wrapper: retries, timeouts, JSON mode, endpoint from .env
+│   └── tools.py       # yfinance tools with an on-disk cache
+├── dev/               # one development notebook per component; merged into notebook.ipynb in week 4
 ├── data/cache/        # committed JSON responses from yfinance
 ├── memory/            # memory.json, the agent's notes across runs
 ├── docs/              # contribution log, AI-use disclosure
