@@ -1,0 +1,16 @@
+{
+  "symbol": "AAPL",
+  "name": "Apple Inc.",
+  "sector": "Technology",
+  "industry": "Consumer Electronics",
+  "market_cap": 4905541566464,
+  "trailing_pe": 38.591274,
+  "forward_pe": 35.05517,
+  "revenue": 466822987776,
+  "revenue_growth": 0.164,
+  "profit_margin": 0.27618998,
+  "earnings_growth": 0.287,
+  "dividend_yield": 0.32,
+  "week52_high": 344.57,
+  "week52_low": 243.42
+}

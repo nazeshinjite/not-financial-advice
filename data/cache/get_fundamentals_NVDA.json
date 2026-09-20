@@ -1,0 +1,16 @@
+{
+  "symbol": "NVDA",
+  "name": "NVIDIA Corporation",
+  "sector": "Technology",
+  "industry": "Semiconductors",
+  "market_cap": 5367153557504,
+  "trailing_pe": 28.099874,
+  "forward_pe": 14.173006,
+  "revenue": 302970011648,
+  "revenue_growth": 1.059,
+  "profit_margin": 0.63663,
+  "earnings_growth": 1.278,
+  "dividend_yield": 0.45,
+  "week52_high": 236.54,
+  "week52_low": 164.27
+}

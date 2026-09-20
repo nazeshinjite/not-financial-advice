@@ -1,0 +1,18 @@
+[project]
+name = "not-financial-advice"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "matplotlib>=3.11.1",
+    "openai>=3.16.2",
+    "python-dotenv>=1.2.3",
+    "yfinance>=1.7.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipykernel>=7.3.0",
+    "jupyter>=1.1.1",
+    "nbconvert>=7.17.1",
+    "ruff>=0.16.8",
+]
