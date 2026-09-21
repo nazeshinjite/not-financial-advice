@@ -19,10 +19,10 @@ The workflows are built and demonstrated standalone first, then reused inside th
 
 AAI 520 Group 1:
 
-- **Ali Abdul-Hameed**
-- **Ian Schmitt**
-- **Jackson Kenyon**
-- **Nina Zhao**
+- **Jackson Kenyon** (L1) - prompt chaining
+- **Ali Abdul-Hameed** (L2) - routing
+- **Nina Zhao** (L3) - evaluator-optimizer
+- **Ian Schmitt** (L4) - plumbing, Investment Research Agent, notebook integration
 
 Lane assignments and the contribution log are recorded in [`docs/contributions.md`](docs/contributions.md).
 
@@ -39,7 +39,7 @@ Lane assignments and the contribution log are recorded in [`docs/contributions.m
 - **Python 3.12**, managed with **[uv](https://docs.astral.sh/uv/)** (pinned dependencies, committed lockfile)
 - **`openai`** Python SDK against any OpenAI-compatible endpoint (cloud or local), selected by environment variables
 - **`yfinance`** for prices, fundamentals, and news
-- **spaCy / NLTK** for preprocessing and entity extraction
+- **spaCy** (small English model, installed by `uv sync`) for preprocessing and entity extraction
 - **pandas** and **matplotlib** for tables and figures
 - **Jupyter** for the deliverable notebook; **ruff** for PEP 8
 
@@ -99,7 +99,7 @@ Full instructions in [`setup.md`](setup.md). The short version:
 git clone https://github.com/nazeshinjite/not-financial-advice.git
 cd not-financial-advice
 uv sync                      # creates .venv and installs pinned dependencies
-cp .env.example .env         # then fill in LLM_BASE_URL, LLM_MODEL, LLM_API_KEY
+cp .env.example .env         # then paste the shared LLM_API_KEY; URL and model are prefilled
 uv run jupyter lab           # open notebook.ipynb
 ```
 

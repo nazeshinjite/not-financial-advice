@@ -1,43 +1,33 @@
 """Market data tools. Each one reads the on-disk cache first and calls Yahoo only on a miss."""
 
-import functools
-import inspect
 import json
-import os
 from pathlib import Path
 
 import yfinance as yf
 
-# Cached JSON lives here and is committed, so the notebook reruns offline and
-# every teammate works from identical data.
-CACHE_DIR = Path(os.getenv("NFA_CACHE_DIR", "data/cache"))
+# Cached responses live here and are committed, so calls whose exact arguments are
+# cached replay offline and every teammate works from identical data. Anchored to the repo root (two levels up
+# from this file) so a notebook in dev/ hits the same files as one at the root.
+CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
 
 
-# Decorator: turn a fetch function into a cache-first one. The file name is the
-# function name plus every argument (defaults included), so get_prices("AAPL", "6mo")
-# and get_prices("AAPL", "1y") are different files. Pass refresh=True to refetch.
-def cached(fn):
-    signature = inspect.signature(fn)
-
-    @functools.wraps(fn)
-    def wrapper(*args, refresh=False, **kwargs):
-        bound = signature.bind(*args, **kwargs)
-        bound.apply_defaults()
-        key = "_".join([fn.__name__, *(str(v) for v in bound.arguments.values())])
-        path = CACHE_DIR / f"{key}.json"
-        if path.exists() and not refresh:
-            return json.loads(path.read_text())
-        result = fn(*args, **kwargs)
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(result, indent=2, default=str))
-        return result
-
-    return wrapper
+# Return the cached result for `name` if it exists; otherwise call fetch(), save it, return it.
+def cache_or_fetch(name, fetch, refresh=False):
+    path = CACHE_DIR / f"{name}.json"
+    if path.exists() and not refresh:
+        return json.loads(path.read_text())
+    result = fetch()
+    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(result, indent=2))
+    return result
 
 
 # Daily closes for the period plus a few summary numbers a prompt can quote directly.
-@cached
-def get_prices(symbol, period="6mo"):
+def get_prices(symbol, period="6mo", refresh=False):
+    return cache_or_fetch(f"get_prices_{symbol}_{period}", lambda: _fetch_prices(symbol, period), refresh)
+
+
+def _fetch_prices(symbol, period):
     history = yf.Ticker(symbol).history(period=period)
     if history.empty:
         raise ValueError(f"No price history returned for {symbol!r}")
@@ -52,7 +42,7 @@ def get_prices(symbol, period="6mo"):
         "high": float(close.max()),
         "low": float(close.min()),
         "avg_volume": int(history["Volume"].mean()),
-        "dates": [str(d.date()) for d in history.index],
+        "dates": [str(d.date()) for d in history.index],  # plain strings, so the dict is JSON-safe
         "close": [float(c) for c in close],
     }
 
@@ -75,31 +65,34 @@ FUNDAMENTAL_FIELDS = {
 }
 
 
-# A flat dict of the selected fundamentals. Missing fields come back as None rather than raising.
-@cached
-def get_fundamentals(symbol):
+# A flat dict of the selected fundamentals. A field Yahoo omits comes back as None.
+def get_fundamentals(symbol, refresh=False):
+    return cache_or_fetch(f"get_fundamentals_{symbol}", lambda: _fetch_fundamentals(symbol), refresh)
+
+
+def _fetch_fundamentals(symbol):
     info = yf.Ticker(symbol).info
     result = {"symbol": symbol}
-    for source_key, our_key in FUNDAMENTAL_FIELDS.items():
-        result[our_key] = info.get(source_key)
+    for yahoo_key, our_key in FUNDAMENTAL_FIELDS.items():
+        result[our_key] = info.get(yahoo_key)
     return result
 
 
-# Recent headlines with summaries. yfinance changed its news shape in 2025 (everything
-# moved under a "content" key), so this reads both the old and the new layout.
-@cached
-def get_news(symbol, limit=10):
-    items = yf.Ticker(symbol).news[:limit]
+# Recent headlines with summaries.
+def get_news(symbol, limit=10, refresh=False):
+    return cache_or_fetch(f"get_news_{symbol}_{limit}", lambda: _fetch_news(symbol, limit), refresh)
+
+
+def _fetch_news(symbol, limit):
     articles = []
-    for item in items:
-        content = item.get("content", item)
-        provider = content.get("provider") or {}
+    for item in yf.Ticker(symbol).news[:limit]:
+        content = item["content"]  # yfinance 1.x nests every article field under "content"
         articles.append({
             "title": content.get("title"),
-            "summary": content.get("summary") or content.get("description") or "",
-            "publisher": provider.get("displayName") or item.get("publisher"),
-            "published": content.get("pubDate") or item.get("providerPublishTime"),
-            "url": (content.get("canonicalUrl") or {}).get("url") or item.get("link"),
+            "summary": content.get("summary", ""),
+            "publisher": (content.get("provider") or {}).get("displayName"),
+            "published": content.get("pubDate"),
+            "url": (content.get("canonicalUrl") or {}).get("url"),
         })
     return articles
 
