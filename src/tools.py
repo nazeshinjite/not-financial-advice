@@ -48,24 +48,32 @@ def _fetch_prices(symbol, period):
 
 
 # Yahoo's info dict has hundreds of keys; keep the dozen an analyst would actually cite.
+# Units live in the key names so a prompt can never misread them: money is in billions
+# (_b) and ratios are percentages (_pct). Yahoo gives money as raw integers such as
+# 302970011648 and growth as fractions such as 1.059; a model reading those in a prompt
+# misplaced the magnitude once in three test runs, so the scaling is done here, once.
 FUNDAMENTAL_FIELDS = {
     "longName": "name",
     "sector": "sector",
     "industry": "industry",
-    "marketCap": "market_cap",
+    "financialCurrency": "currency",  # the unit of the money fields; Yahoo reports foreign listings in local currency
+    "marketCap": "market_cap_b",
     "trailingPE": "trailing_pe",
     "forwardPE": "forward_pe",
-    "totalRevenue": "revenue",
-    "revenueGrowth": "revenue_growth",
-    "profitMargins": "profit_margin",
-    "earningsGrowth": "earnings_growth",
-    "dividendYield": "dividend_yield",
+    "totalRevenue": "revenue_b",
+    "revenueGrowth": "revenue_growth_pct",
+    "profitMargins": "profit_margin_pct",
+    "earningsGrowth": "earnings_growth_pct",
+    "dividendYield": "dividend_yield_pct",  # already a percent in yfinance 1.7 (AAPL 0.32 means 0.32%); not rescaled
     "fiftyTwoWeekHigh": "week52_high",
     "fiftyTwoWeekLow": "week52_low",
 }
+BILLIONS = {"market_cap_b", "revenue_b"}
+FRACTION_TO_PCT = {"revenue_growth_pct", "profit_margin_pct", "earnings_growth_pct"}
 
 
-# A flat dict of the selected fundamentals. A field Yahoo omits comes back as None.
+# A flat dict of the selected fundamentals, scaled to the units in the key names.
+# A field Yahoo omits comes back as None.
 def get_fundamentals(symbol, refresh=False):
     return cache_or_fetch(f"get_fundamentals_{symbol}", lambda: _fetch_fundamentals(symbol), refresh)
 
@@ -74,7 +82,12 @@ def _fetch_fundamentals(symbol):
     info = yf.Ticker(symbol).info
     result = {"symbol": symbol}
     for yahoo_key, our_key in FUNDAMENTAL_FIELDS.items():
-        result[our_key] = info.get(yahoo_key)
+        value = info.get(yahoo_key)
+        if value is not None and our_key in BILLIONS:
+            value = round(value / 1e9, 2)
+        elif value is not None and our_key in FRACTION_TO_PCT:
+            value = round(value * 100, 1)
+        result[our_key] = value
     return result
 
 

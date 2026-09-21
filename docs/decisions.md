@@ -13,6 +13,7 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | Framework | None; plain Python as in the Module 7 lab | Rubric grades the patterns, not a framework |
 | Code placement | Graded logic as notebook cells; only plumbing in `src/` | The grader reads a PDF |
 | Python | 3.12, uv, `pyproject.toml` + `uv.lock` committed; `ruff` for PEP 8 | Reproducible env; PEP 8 is required |
+| Fundamentals units | `get_fundamentals` returns money in billions (`market_cap_b`, `revenue_b`), ratios as percentages (`*_pct`), plus a `currency` field; units are in the key names | Raw Yahoo integers (302970011648) were misread by the model as $3.03T in one of three simulated runs; scaling once in the tool means no prompt ever formats numbers |
 | NLP library | spaCy 3.8 with `en_core_web_sm` 3.8.0 declared as a dependency (installed by `uv sync`, no download step) | Lane 1's preprocess and extract steps; a pinned wheel means every machine has the same model |
 
 ## Change log
