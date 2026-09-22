@@ -13,7 +13,8 @@ from openai import OpenAI
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 # One client for the whole project. The base URL decides which server this talks to:
-# OpenAI, a gateway such as Nous Portal or OpenRouter, or a local llama.cpp server.
+# a gateway such as Nous Portal or OpenRouter, or a local llama.cpp server. OpenAI's own
+# API would reject the reasoning switch below, so it is not a supported target as written.
 client = OpenAI(
     api_key=os.getenv("LLM_API_KEY", "local"),  # local servers ignore the key but the SDK requires one
     base_url=os.getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
@@ -36,7 +37,8 @@ def _complete(messages, json_mode, max_tokens, temperature, think):
         options["response_format"] = {"type": "json_object"}
     if not think:
         # Reasoning models think by default and those hidden tokens count against max_tokens.
-        # This is the switch the gateway honors for DeepSeek; a model that rejects it (GLM does) is not a drop-in.
+        # This is the switch the gateway honors for DeepSeek; a model that rejects it
+        # (GLM does) is not a drop-in.
         options["extra_body"] = {"reasoning": {"enabled": False}}
 
     started = time.time()
@@ -62,9 +64,9 @@ def _complete(messages, json_mode, max_tokens, temperature, think):
 # bare value parses fine but is not a dict, so it is treated the same as bad JSON.
 def _parse_object(text):
     result = json.loads(text)
-    if not isinstance(result, dict):
-        raise json.JSONDecodeError("Reply is valid JSON but not an object", text, 0)
-    return result
+    if isinstance(result, dict):
+        return result
+    raise ValueError("Reply is valid JSON but not an object")
 
 
 # Send one prompt and return the reply: text, or a dict when json_mode=True.
@@ -81,7 +83,7 @@ def chat(system, user, json_mode=False, max_tokens=800, temperature=1.0, think=F
         return text
     try:
         return _parse_object(text)
-    except json.JSONDecodeError:
+    except ValueError:  # json.loads raises JSONDecodeError, a kind of ValueError
         messages.append({"role": "assistant", "content": text})
         messages.append({"role": "user", "content": "That was not a JSON object. Reply with a single JSON object and nothing else."})
         text = _complete(messages, json_mode, max_tokens, temperature, think)

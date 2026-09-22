@@ -15,6 +15,8 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | Python | 3.12, uv, `pyproject.toml` + `uv.lock` committed; `ruff` for PEP 8 | Reproducible env; PEP 8 is required |
 | Fundamentals units | `get_fundamentals` returns money in billions (`market_cap_b`, `revenue_b`), ratios as percentages (`*_pct`), plus a `currency` field; units are in the key names | Raw Yahoo integers (302970011648) were misread by the model as $3.03T in one of three simulated runs; scaling once in the tool means no prompt ever formats numbers |
 | NLP library | spaCy 3.8 with `en_core_web_sm` 3.8.0 declared as a dependency (installed by `uv sync`, no download step) | Lane 1's preprocess and extract steps; a pinned wheel means every machine has the same model |
+| Evaluator feedback shape | `evaluate()` returns `feedback` as a list of strings, each naming the criterion it failed; `refine()` takes that list | Easier to print, count, and feed back than one paragraph |
+| Reflection and memory shape | `reflect(symbol, run_result) -> {"score", "note", "lesson"}`; `remember(symbol, note, lesson=None)` | A useful note needs the plan and tool log, not only the report; a general lesson needs somewhere to go |
 
 ## Change log
 
@@ -23,3 +25,4 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | 2026-09-19 | Initial decisions from the team proposal. | Ian |
 | 2026-09-19 | Kickoff: model fixed to DeepSeek V4.1 Flash via Nous Portal; lanes assigned (see contributions.md). | Team |
 | 2026-09-20 | GLM-5.3 Flash evaluated as default and rejected (mandatory reasoning, wrapped JSON, stray fences); DeepSeek V4.1 Flash stays. | Ian |
+| 2026-09-22 | Contract shapes settled for evaluator feedback, `reflect`, and `remember`. Calendar: early deliverables Oct 4, assembly Oct 12 to 14, submission Sun Oct 18. | Ian |

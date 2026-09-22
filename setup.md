@@ -64,6 +64,8 @@ The shared key is on Ian's Nous Portal plan, so its rate and spend limits are sh
 uv run python -c "from src import llm; print('\n'.join(sorted(m.id for m in llm.client.models.list().data)))"
 ```
 
+**Never paste the key into a notebook cell or any file other than `.env`.** The repo is public: a key committed in a notebook is published, and scanners find leaked keys within hours.
+
 ### Verify the install
 
 ```bash
@@ -103,6 +105,8 @@ uv run jupyter nbconvert --to script dev/chain.ipynb   # writes dev/chain.py; co
 ```
 
 Nobody edits the `.py` exports by hand.
+
+Importing an export runs every cell in it, so keep demo code (LLM calls, prints, plots) inside the `if __name__ == "__main__":` block at the bottom of your stub. It still runs in your notebook; it does not run when the agent lane imports your functions.
 
 ## Style
 

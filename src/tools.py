@@ -6,8 +6,9 @@ from pathlib import Path
 import yfinance as yf
 
 # Cached responses live here and are committed, so calls whose exact arguments are
-# cached replay offline and every teammate works from identical data. Anchored to the repo root (two levels up
-# from this file) so a notebook in dev/ hits the same files as one at the root.
+# cached replay offline and every teammate works from identical data. Anchored to the
+# repo root (two levels up from this file) so a notebook in dev/ hits the same files as
+# one at the root.
 CACHE_DIR = Path(__file__).resolve().parent.parent / "data" / "cache"
 
 
