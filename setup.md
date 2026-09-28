@@ -108,6 +108,19 @@ Nobody edits the `.py` exports by hand.
 
 Importing an export runs every cell in it, so keep demo code (LLM calls, prints, plots) inside the `if __name__ == "__main__":` block at the bottom of your stub. It still runs in your notebook; it does not run when the agent lane imports your functions.
 
+### Agents: name every call and every handoff
+
+Every `chat()` call names the agent making it, and every time one agent passes work to another, call `handoff()`. The call log then shows which agent did what, and the notebook output shows the collaboration as it happens.
+
+```python
+from src.llm import chat, handoff
+
+label = chat(ROUTER_PROMPT, item_text, json_mode=True, agent="Router")
+handoff("Router", "Earnings Specialist", item["title"])
+```
+
+Use these names exactly: Coordinator, News Analyst, Router, Earnings Specialist, News Specialist, Market Specialist, Writer, Critic, Reflector.
+
 ## Style
 
 PEP 8 is a stated project requirement. Run ruff before every PR:

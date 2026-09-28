@@ -23,13 +23,13 @@ client = OpenAI(
 MODEL = os.getenv("LLM_MODEL")
 
 # One entry per completed call (a request the server rejects is not logged), so the
-# notebook can show how many calls a run made and what they cost.
+# notebook can show how many calls a run made, what they cost, and which agent made each.
 CALL_LOG = []
 
 
 # Make one API call and return the reply text. Raises on a reply that was cut off by
 # max_tokens (retrying under the same budget cannot help) and on an empty reply.
-def _complete(messages, json_mode, max_tokens, temperature, think):
+def _complete(messages, json_mode, max_tokens, temperature, think, agent):
     if not MODEL:
         raise RuntimeError("LLM_MODEL is not set. Copy .env.example to .env and fill it in.")
     options = {}
@@ -48,6 +48,7 @@ def _complete(messages, json_mode, max_tokens, temperature, think):
     choice = response.choices[0]
     usage = response.usage  # every backend we use reports it, but a missing count must not fail the call
     CALL_LOG.append({
+        "agent": agent,
         "prompt_tokens": usage.prompt_tokens if usage else None,
         "completion_tokens": usage.completion_tokens if usage else None,
         "seconds": round(time.time() - started, 2),
@@ -72,13 +73,14 @@ def _parse_object(text):
 # Send one prompt and return the reply: text, or a dict when json_mode=True.
 # A reply that is not a JSON object is shown back to the model once for correction.
 # think=True allows the model's hidden reasoning, for a call where deliberation is
-# worth the extra latency and tokens; off everywhere else.
-def chat(system, user, json_mode=False, max_tokens=800, temperature=1.0, think=False):
+# worth the extra latency and tokens; off everywhere else. agent names the agent making
+# the call ("Router", "Critic"); it goes in CALL_LOG only, and the model never sees it.
+def chat(system, user, json_mode=False, max_tokens=800, temperature=1.0, think=False, agent=None):
     messages = [
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
-    text = _complete(messages, json_mode, max_tokens, temperature, think)
+    text = _complete(messages, json_mode, max_tokens, temperature, think, agent)
     if not json_mode:
         return text
     try:
@@ -86,5 +88,11 @@ def chat(system, user, json_mode=False, max_tokens=800, temperature=1.0, think=F
     except ValueError:  # json.loads raises JSONDecodeError, a kind of ValueError
         messages.append({"role": "assistant", "content": text})
         messages.append({"role": "user", "content": "That was not a JSON object. Reply with a single JSON object and nothing else."})
-        text = _complete(messages, json_mode, max_tokens, temperature, think)
+        text = _complete(messages, json_mode, max_tokens, temperature, think, agent)
         return _parse_object(text)  # a second failure raises to the caller
+
+
+# Print one line whenever work passes from one agent to another, so the notebook
+# output shows the collaboration as it happens. content is cut to 60 characters to fit a PDF page.
+def handoff(sender, receiver, content):
+    print(f"{sender} → {receiver}: {str(content)[:60]}")
