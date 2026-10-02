@@ -68,7 +68,7 @@ The notebook is the deliverable and the grader reads it as a PDF, so every grade
 | Agent plans | Notebook section 4, `ResearchAgent.plan` | The printed plan for a symbol |
 | Agent uses tools dynamically | Notebook section 4, `ResearchAgent.run` + `src/tools.py` | Tool-call log per run |
 | Agent self-reflects | Notebook section 4, reusing the section 3 evaluator | Reflection output on the final report |
-| Agent learns across runs | Notebook section 4 + `memory/memory.json` | Two runs on one symbol; memory diff and the changed plan |
+| Agent learns across runs | Notebook section 4, `ResearchAgent.remember` | Two runs on one symbol; memory diff and the changed plan |
 
 ### Repository structure
 
@@ -80,7 +80,6 @@ not-financial-advice/
 │   └── tools.py       # yfinance tools with an on-disk cache
 ├── dev/               # one development notebook per component; merged into notebook.ipynb in week 4
 ├── data/cache/        # committed JSON responses from yfinance
-├── memory/            # memory.json, the agent's notes across runs
 ├── docs/              # contribution log, AI-use disclosure
 ├── setup.md           # environment and run instructions
 ├── pyproject.toml     # uv-managed dependencies
