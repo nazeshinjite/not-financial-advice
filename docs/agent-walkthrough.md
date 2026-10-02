@@ -6,8 +6,8 @@ This document guides a reader who has not opened the notebook through the agent 
 |---|---|
 | Memory store (`__init__`) | Built, step 1 |
 | Step registry, planner menu, development stand-ins | Built, step 2 |
-| `plan()` | Planned, step 3 |
-| `run()` with `brief()`, `write_report()`, `report_criteria()` | Planned, step 4 |
+| `plan()` | Built, step 3; lean-plan tuning waits for step 6 |
+| `run()` with `brief()`, `write_report()`, `report_criteria()` | Built, step 4 |
 | `reflect()`, `remember()` | Planned, step 5 |
 | Demonstration and figures | Planned, step 6 |
 | Real lane functions in place of stand-ins | After Oct 4, step 7 |
@@ -71,18 +71,19 @@ The rubric grades the patterns, not a library. Plain Python keeps every decision
 
 ## 2. Agent Functions and Capabilities
 
-### 2.1 Plans (`plan`, planned)
+### 2.1 Plans (`plan`)
 
 The Coordinator makes one JSON-mode call. Its prompt holds a menu of available steps (what each returns, when it is worth running, and its allowed arguments) and the agent's memory for this symbol: the notes from earlier runs on it, then every general lesson, or "none yet". It returns an ordered list of at most eight steps, each `{"tool", "args", "why"}`.
 
 Design choices:
 
-- **Temperature 0 for the planner only.** With sampling noise removed, memory is the only input that differs between a first and a second run on the same symbol, so a changed plan can be attributed to what the agent learned.
-- **A lean plan.** The prompt asks for only the steps the note needs. If the first plan already called every tool, memory would have nothing to add and the learning demonstration would be empty.
+- **Temperature 0 for the planner only.** Memory is then the only input that differs between a first and a second run on the same symbol. In testing, temperature 0 on this gateway did not make the planner repeatable. Within one test session, identical requests gave the same sequence of tools in different words; across sessions, the same empty-memory request produced all five steps in one session and three in another. Temperature 0 alone therefore cannot attribute a changed plan to memory (see Evaluation and Iteration).
+- **The planner does not see the Critic's criteria.** It is told the goal (a short factual note, no recommendation) and nothing about how the note will be graded. What a good note needs is something the agent learns from the Critic's feedback, run by run; a planner shown the criteria would plan perfectly on the first run and leave memory nothing to teach.
+- **A lean plan.** The prompt asks for only the steps the note needs and the menu states each step's cost in LLM calls. If the first plan already calls every tool, memory has nothing to add. In testing it did call every tool; see the iteration log.
 - **`why` cites memory.** When a step exists because of a stored note, its `why` says so. That makes memory's influence visible even when two plans use the same tools.
 - **Unknown tools are kept, not filtered.** A step naming a tool that does not exist reaches the executor, which logs and skips it. The mistake stays visible and becomes something the Reflector can learn from.
 
-### 2.2 Uses tools dynamically (`run`, planned)
+### 2.2 Uses tools dynamically (`run`)
 
 The executor walks the plan and calls each step by name from one dispatch table: the three data tools from `src/tools.py` plus `run_chain` (section 1) and `route_and_analyze` (section 2). Which tools run, and in what order, is the planner's choice, not ours; no line of our code fixes the sequence, which is what makes the tool use dynamic.
 
@@ -100,6 +101,8 @@ Design choices:
 - **A failed step is recorded, not raised.** Each step runs inside a `try`; a failure is written to the run log with its error and the run continues. A research run that loses one source should still produce a note, and the failure becomes evidence for reflection.
 - **One compact view of the results.** Price history arrives as 125 daily closes, which would bloat every prompt. A `brief()` function reduces the results to the figures a note would cite, and the Writer, the Critic's criteria, and the Reflector all read that same view, so the numbers the Writer quotes are the numbers the Critic checks.
 - **The note goes through the section 3 loop.** The Writer's draft is passed to `evaluator_optimizer` as its generator, so every report the agent produces has been scored and, if needed, revised.
+- **The Writer quotes and never computes.** Its prompt says to quote figures exactly as given and derive none. A difference the Writer computes correctly (an 89.94-point gain from two closes) is still a figure the Critic cannot find in the reference data, and in testing it was graded as a mismatch.
+- **Fixed criteria, whatever the plan gathered.** The Critic grades every note against the same six criteria (price change, a fundamental with its unit, news sentiment as counts, a named risk, no recommendation, figures that match the data). A plan that skipped a needed step yields a note that fails one, and that failure is what reflection turns into a note for the next plan. Only `run_chain` supplies sentiment counts, so a plan without it fails criterion 3.
 
 ### 2.3 Self-reflects (`reflect`, planned)
 
@@ -132,6 +135,7 @@ Design choices:
 The demonstration runs one agent three times, in this order: AAPL, AAPL, NVDA. Each run is `run`, then `reflect`, then `remember`, and a copy of memory is kept after each.
 
 - **AAPL run 2 against run 1** shows a symbol note at work. Same symbol, same data, planner at temperature 0; the only new input is the note from run 1.
+- **A fresh-agent control.** Temperature 0 does not make the planner repeatable on this gateway, so a difference between run 1 and run 2 could be drift between calls made minutes apart, the way a batch effect separates samples run on different days. Right after run 2, a new agent with empty memory plans AAPL. Its plan and run 2's were requested moments apart and differ only in memory. If the control matches run 1 and run 2 differs, memory changed the plan; if the control matches run 2, the change was drift; if it matches neither, the noise is too large for one sample and the control is repeated.
 - **NVDA** has no notes of its own, so any change from the first AAPL plan comes from the general lessons, showing that learning transfers across symbols.
 
 The figures:
@@ -150,6 +154,13 @@ Problems found while building, and what changed because of them.
 |---|---|---|
 | 2026-10-01 | Asked to revise a flawed note, the Writer returned commentary about the note's problems instead of a revised note. The prompt said what to fix but not what to return. | Revision prompts end with "Reply with the revised report only, no commentary on what changed." |
 | 2026-10-01 | When the criteria named a data field (`revenue_b`), the revised note quoted the field name in its prose. | Criteria and the Writer prompt describe figures in plain language ("annual revenue in billions of USD"); field names stay in the data. |
+| 2026-10-01 | With empty memory the planner chose all five steps, including `get_news` before `run_chain`, "so later steps have source material". The menu had not said that `run_chain` fetches the news itself. | The menu now says so. The planner still chose all five steps. |
+| 2026-10-01 | The Critic, sampling at temperature 1.0, gave a correct 89.94-point difference a failing mark and wrote partly incoherent feedback; the revision then scored lower than the draft (3, then 0). | The Writer now quotes figures and computes none. The development Critic runs at temperature 0, after which its feedback named real, specific problems. Recommended to Lane 3: grade at temperature 0, and return the best-scoring draft, not the last. |
+| 2026-10-01 | With a plan that skipped `run_chain`, the Writer invented sentiment counts (14 positive, 9 negative, 22 neutral, against 10 headlines). The temperature-0 Critic caught it under criteria 3 and 6. | None needed: this is the failure the learning loop is meant to catch and correct on the next run. |
+| 2026-10-01 | The Critic failed a P/E rounded to 38.6 against 38.591274. | Criterion 6 now allows rounding. |
+| 2026-10-01 | One Writer call took 49.6 seconds against a 60-second timeout. A timeout inside the writing loop is not caught per step, so it would end the run. | Watching; not changed. |
+| 2026-10-01 | Compared four model variants on the gateway: the empty-memory AAPL plan 10 times each in two interleaved batches, and one fixed note graded 5 times each by the Critic at temperature 0. Same tool sequence: v4.1 Flash 9 of 10, v4.1 Flash pinned to US servers 10 of 10, V4 Flash 6 of 10, V4 Flash 0731 5 of 10. Grading a note that lacked sentiment counts and a named risk, v4.1 Flash failed it every time (score 3 to 4, naming both gaps, plus one false claim that the 52-week range was missing from the data); V4 Flash and V4 Flash 0731 passed it with 8 to 10, and V4 Flash returned the criteria list as its feedback. The 0731 snapshot reported different backend fingerprints across calls, evidence that one model name is served by more than one backend. | Stay on v4.1 Flash. The older models plan less repeatably and grade leniently. The fresh-agent control is added to the demonstration. |
+| 2026-10-01 | Adding a research budget in LLM calls to the planner prompt made the first plan leaner in some runs, but results swung with small wording changes and the planner exceeded the budget it was given. With a stored note from a failed run, every variant changed the plan (dropped `get_news`, added `run_chain`). | No budget for now. Tuning the planner against invented notes fits noise; it waits for step 6, when real Critic feedback produces real notes. |
 
 ## 4. Areas to build on
 
