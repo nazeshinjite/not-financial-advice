@@ -58,7 +58,7 @@ All market data comes from Yahoo Finance through the `yfinance` package: daily p
 
 ### How the work is organized
 
-The notebook is the deliverable and the grader reads it as a PDF, so every graded behavior is implemented as code cells in the notebook itself, under a heading that names the requirement, followed by the cells that run it and plot it. Only plumbing that no rubric line is about lives in `src/`: the LLM wrapper and the cached data tools. During development each component is built in its own notebook under `dev/`, so four people can commit in parallel without editing one file; the final notebook is assembled from those in the last week.
+The notebook is the deliverable and the grader reads it as an HTML export, so every graded behavior is implemented as code cells in the notebook itself, under a heading that names the requirement, followed by the cells that run it and plot it. Only plumbing that no rubric line is about lives in `src/`: the LLM wrapper and the cached data tools. During development each component is built in its own notebook under `dev/`, so four people can commit in parallel without editing one file; the final notebook is assembled from those in the last week.
 
 | Requirement | Where it lives | Demonstrated by |
 |---|---|---|
@@ -88,7 +88,7 @@ not-financial-advice/
 
 ### Roadblocks / challenges
 
-Getting reliable structured (JSON) output from the LLM, since the classifier, router, evaluator, and planner all depend on it. Making "learns across runs" visibly true rather than a file that gets written and never read. Schema drift and rate limits in `yfinance`, handled by the cache. Keeping every LLM loop bounded so nothing can run away. Exporting a long notebook to a PDF that is still readable.
+Getting reliable structured (JSON) output from the LLM, since the classifier, router, evaluator, and planner all depend on it. Making "learns across runs" visibly true rather than a file that gets written and never read. Schema drift and rate limits in `yfinance`, handled by the cache. Keeping every LLM loop bounded so nothing can run away. Exporting a long notebook to HTML that is still readable.
 
 ## Installation
 
