@@ -68,7 +68,7 @@ The notebook is the deliverable and the grader reads it as an HTML export, so ev
 | Agent plans | Notebook section 4, `ResearchAgent.plan` | The printed plan for a symbol |
 | Agent uses tools dynamically | Notebook section 4, `ResearchAgent.run` + `src/tools.py` | Tool-call log per run |
 | Agent self-reflects | Notebook section 4, reusing the section 3 evaluator | Reflection output on the final report |
-| Agent learns across runs | Notebook section 4, `ResearchAgent.remember` | Two interleaved runs per symbol, each beside a memoryless twin run; memory and the changed plan |
+| Agent learns across runs | Notebook section 4, `ResearchAgent.remember` | Two interleaved runs per symbol, each beside a memoryless twin run; memory and the improved first draft |
 
 ### Repository structure
 
