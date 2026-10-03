@@ -47,7 +47,7 @@ Lane assignments and the contribution log are recorded in [`docs/contributions.m
 
 ### Data
 
-All market data comes from Yahoo Finance through the `yfinance` package: daily price history, company fundamentals (`Ticker.info` and financial statements), and recent news headlines with summaries. Every tool response is cached as JSON under `data/cache/` and committed, so the notebook reruns offline, results are reproducible, and API rate limits never interrupt a demonstration. The demonstration uses two symbols: one run twice to show memory at work, and one run once.
+All market data comes from Yahoo Finance through the `yfinance` package: daily price history, company fundamentals (`Ticker.info` and financial statements), and recent news headlines with summaries. Every tool response is cached as JSON under `data/cache/` and committed, so the notebook reruns offline, results are reproducible, and API rate limits never interrupt a demonstration. The demonstration uses two symbols, each run twice in alternation, so each one's second run shows memory at work.
 
 ### Questions we are exploring
 
@@ -68,7 +68,7 @@ The notebook is the deliverable and the grader reads it as a PDF, so every grade
 | Agent plans | Notebook section 4, `ResearchAgent.plan` | The printed plan for a symbol |
 | Agent uses tools dynamically | Notebook section 4, `ResearchAgent.run` + `src/tools.py` | Tool-call log per run |
 | Agent self-reflects | Notebook section 4, reusing the section 3 evaluator | Reflection output on the final report |
-| Agent learns across runs | Notebook section 4, `ResearchAgent.remember` | Two runs on one symbol; memory diff and the changed plan |
+| Agent learns across runs | Notebook section 4, `ResearchAgent.remember` | Two interleaved runs per symbol, each against an empty-memory control; memory and the changed plan |
 
 ### Repository structure
 

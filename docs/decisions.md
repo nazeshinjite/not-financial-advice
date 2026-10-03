@@ -7,7 +7,7 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | LLM access | `openai` SDK; `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY` from `.env`; only `src/llm.py` talks to the model | One config switch between OpenAI, OpenRouter, and local servers; JSON parsing and timeouts solved once |
 | Model | `deepseek/deepseek-v4.1-flash` through Nous Portal (`https://inference-api.nousresearch.com/v1`, an OpenRouter-catalog mirror), one shared key; `deepseek-v4-flash-0731` is the fallback | Fast, flat JSON 36/36 in tests, reasoning can be switched off. GLM-5.3 Flash tested and rejected: mandatory reasoning on this gateway, wraps JSON in an extra key |
 | Data | `yfinance` only; every tool response cached as JSON under `data/cache/` and committed | Offline, reproducible reruns; identical data for every teammate; rate limits are a one-time problem |
-| Symbols | AAPL (run twice), NVDA (run once) | Minimum that demonstrates memory across runs |
+| Symbols | AAPL and NVDA, two runs each, interleaved: AAPL, NVDA, AAPL, NVDA | Each symbol's second run reads its own note and NVDA's first run reads AAPL's lessons, so a failure in either first run is followed by a run that can show the correction |
 | Iteration caps | Evaluator-optimizer max 2 refinements; plan max 8 steps; every call has a timeout | Bounded cost and guaranteed termination |
 | Memory | A dict on the agent, `{"symbols": {...}, "lessons": [...]}`, read by the planner and the Writer; starts empty on every notebook run | Smallest thing that visibly changes the next run; a cold start each run keeps the exported demo reproducible, and only Lane 4 touches it. The Writer reads it too because most failures are in the writing, which no change of plan can fix |
 | Framework | None; plain Python as in the Module 7 lab | Rubric grades the patterns, not a framework |
@@ -30,3 +30,4 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | 2026-09-27 | Added the `agent=` label to `chat()` and the `handoff()` helper; fixed the agent names. | Ian |
 | 2026-10-01 | Memory moved from `memory/memory.json` to a dict on the agent, so every run of the notebook starts cold. | Ian |
 | 2026-10-02 | Memory now reaches the Writer as well as the planner, after a writing failure led the planner to invent a step that does not exist. | Ian |
+| 2026-10-02 | Demonstration order changed from AAPL, AAPL, NVDA to AAPL, NVDA, AAPL, NVDA: in the first end-to-end run, NVDA was the run that failed and nothing read its note. | Ian |

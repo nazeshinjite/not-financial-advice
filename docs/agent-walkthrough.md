@@ -9,7 +9,7 @@ This document guides a reader who has not opened the notebook through the agent 
 | `plan()` | Built, step 3; lean-plan tuning waits for step 6 |
 | `run()` with `brief()`, `write_report()`, `report_criteria()` | Built, step 4 |
 | `reflect()`, `remember()` | Built, step 5 |
-| Demonstration and figures | Planned, step 6 |
+| Demonstration and figures | Built, step 6; run order under review |
 | Real lane functions in place of stand-ins | After Oct 4, step 7 |
 
 ## 1. Agent Design and Workflows
@@ -133,21 +133,23 @@ Design choices:
 
 ## 3. Evaluation and Iteration
 
-*(Planned, step 6. Results are filled in once the demonstration runs on the real lane functions.)*
+*(Built, step 6. Results are filled in once the demonstration runs on the real lane functions.)*
 
-The demonstration runs one agent three times, in this order: AAPL, AAPL, NVDA. Each run is `run`, then `reflect`, then `remember`, and a copy of memory is kept after each.
+The demonstration runs one agent four times, interleaved: AAPL, NVDA, AAPL, NVDA. Each run is `run`, then `reflect`, then `remember`, and a copy of memory is kept after each.
 
-- **AAPL run 2 against run 1** shows a symbol note at work. Same symbol, same data, planner at temperature 0; the only new input is the note from run 1.
-- **A fresh-agent control.** Temperature 0 does not make the planner repeatable on this gateway, so a difference between run 1 and run 2 could be drift between calls made minutes apart, the way a batch effect separates samples run on different days. Right after run 2, a new agent with empty memory plans AAPL. Its plan and run 2's were requested moments apart and differ only in memory. If the control matches run 1 and run 2 differs, memory changed the plan; if the control matches run 2, the change was drift; if it matches neither, the noise is too large for one sample and the control is repeated.
-- **NVDA** has no notes of its own, so any change from the first AAPL plan comes from the general lessons, showing that learning transfers across symbols.
+- **Each symbol's second run** reads the note its first run wrote. Same symbol, same data, planner at temperature 0; the new input is memory.
+- **NVDA's first run** has no notes of its own but reads AAPL's lessons, so a change there shows a lesson transferring across symbols.
+- **A fresh-agent control.** Temperature 0 does not make the planner repeatable on this gateway, so a difference between two runs could be drift between calls made minutes apart, the way a batch effect separates samples run on different days. Before every run after the first, a new agent with empty memory plans the same symbol. Its plan and the run's were requested moments apart and differ only in memory. If the control matches the earlier plan and the run's plan differs, memory changed the plan; if the control matches the run's plan, memory did not; if it matches neither, the noise is too large for one sample and the control is repeated.
+- **Why interleaved.** Learning can only appear when a run that failed is followed by a run that reads its memory, and which run fails is chance. The first order tried (AAPL, AAPL, NVDA) put NVDA's only run last; in the first end-to-end test that was the run that failed, and nothing read its note. Interleaving gives each symbol a second run. It does not guarantee an improvement: a second run can regress, as one did in testing, and only a third would show the correction.
 
-The figures:
+The outputs:
 
-1. AAPL plan 1 beside plan 2, with the memory between them printed.
-2. The Critic's score per round for each run, and the reflection score per run.
-3. Team status: LLM calls and tokens per agent, read from `CALL_LOG`.
+1. For every run after the first: the memory it planned from, its plan beside the earlier plan and its own control, and a verdict line computed from the three (memory changed the plan; the plan matches the control; or the control matches neither). Where memory changed the plan, each step's `why`.
+2. Everything in memory after the last run, and the final note from the last run.
+3. The Critic's score at each round of the writing loop for each run, and the score reflection recorded per run.
+4. Team status: LLM calls and tokens per agent across the demonstration, read from `CALL_LOG`.
 
-Known variation: only the planner runs at temperature 0. The Writer, Critic, and Reflector sample at 1.0, so scores and wording differ between exports of the notebook. A rough estimate is 40 LLM calls per run, most of them in routing (one route and one analysis per article).
+Known variation: the planner, the Reflector, and the development Critic run at temperature 0, but this gateway does not make temperature 0 repeatable, and the Writer samples at 1.0. Plans, scores, and wording differ between exports of the notebook; the controls are what make any one export readable. A rough estimate is 40 LLM calls per run with the real lanes, most of them in routing (one route and one analysis per article).
 
 ### Iteration log
 
@@ -167,6 +169,8 @@ Problems found while building, and what changed because of them.
 | 2026-10-02 | Following that note, the run-2 planner added a step that does not exist (`verify_sentiment_counts`). The executor logged it as unknown and continued; the Reflector read the log and wrote "Drop the verify_sentiment_counts step: it is not in the tool menu". | Reflection corrected the agent's own planning mistake on the next cycle. The cause is that the run-1 failure was a writing problem, which no change to the plan can fix; see 2.4. |
 | 2026-10-02 | With memory reaching the Writer and the Reflector shown the menu, four AAPL cycles on the stand-ins gave Critic scores of 10, 6, 9, 10. The cycle-2 failure was diagnosed as a writing failure ("must report the news sentiment exactly as the labeled counts show"), with a matching lesson; cycle 4's first draft scored 10 with no revision. No step was invented. | One sequence, so suggestive only: the cycle-2 drop after a perfect cycle 1 shows how much a single score moves with the Writer at temperature 1.0. |
 | 2026-10-02 | One Critic reply hit the 800-token cap inside `reflect()` and `chat()` raised, ending the run. The next 11 Critic replies used 17 to 192 tokens. Cause unknown: a greedy-decoding repetition loop at temperature 0 is the leading guess, and raising the cap would not cure that. | Watching. `chat()` raises without the text, so the next occurrence cannot be diagnosed either; including the end of a truncated reply in the error is proposed for `src/llm.py`. |
+| 2026-10-02 | First end-to-end run of the demonstration on the stand-ins: 21 calls, about 24,600 tokens, 2 minutes 18 seconds. AAPL run 1 scored 10, so its note said to keep the plan; run 2 matched both run 1 and the control, and the verdict line reported that memory did not change the plan. NVDA was the run that failed (the Writer invented sentiment counts) and produced a specific note and lesson, but no later run read them. | The order assumes the first run fails, which is chance. Proposed: interleave AAPL, NVDA, AAPL, NVDA, so each symbol's second run reads its own note and whichever run fails is followed by one that can show the correction. |
+| 2026-10-02 | Second end-to-end run. AAPL run 1's note said to ground risks in figures rather than in a headline's claim; AAPL run 2 dropped `run_chain` and `route_and_analyze`, citing that lesson, while the empty-memory control kept all five steps, so the verdict line credited memory with the change. With no labeled news, the Writer invented sentiment counts (2 positive, 0 negative, 1 neutral from 10 headlines) and scored 4. Reflection caught it: the new AAPL note says to run `run_chain` before stating counts, and a new lesson generalizes it. No later run read either. | The control attributes a change correctly in both directions: memory can make a plan worse, and the demonstration has to be able to show the correction. Feeds the run-order decision. |
 | 2026-10-01 | Adding a research budget in LLM calls to the planner prompt made the first plan leaner in some runs, but results swung with small wording changes and the planner exceeded the budget it was given. With a stored note from a failed run, every variant changed the plan (dropped `get_news`, added `run_chain`). | No budget for now. Tuning the planner against invented notes fits noise; it waits for step 6, when real Critic feedback produces real notes. |
 
 ## 4. Areas to build on
