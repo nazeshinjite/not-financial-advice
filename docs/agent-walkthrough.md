@@ -8,7 +8,7 @@ This document guides a reader who has not opened the notebook through the agent 
 | Step registry, planner menu, development stand-ins | Built, step 2 |
 | `plan()` | Built, step 3; lean-plan tuning waits for step 6 |
 | `run()` with `brief()`, `write_report()`, `report_criteria()` | Built, step 4 |
-| `reflect()`, `remember()` | Planned, step 5 |
+| `reflect()`, `remember()` | Built, step 5 |
 | Demonstration and figures | Planned, step 6 |
 | Real lane functions in place of stand-ins | After Oct 4, step 7 |
 
@@ -104,16 +104,18 @@ Design choices:
 - **The Writer quotes and never computes.** Its prompt says to quote figures exactly as given and derive none. A difference the Writer computes correctly (an 89.94-point gain from two closes) is still a figure the Critic cannot find in the reference data, and in testing it was graded as a mismatch.
 - **Fixed criteria, whatever the plan gathered.** The Critic grades every note against the same six criteria (price change, a fundamental with its unit, news sentiment as counts, a named risk, no recommendation, figures that match the data). A plan that skipped a needed step yields a note that fails one, and that failure is what reflection turns into a note for the next plan. Only `run_chain` supplies sentiment counts, so a plan without it fails criterion 3.
 
-### 2.3 Self-reflects (`reflect`, planned)
+### 2.3 Self-reflects (`reflect`)
 
 Reflection has two parts. The Critic scores the final note against the run's criteria using section 3's `evaluate`. The Reflector then reads the whole run (the plan, the tool log, the score history, and the Critic's feedback) and returns a note specific to this symbol, such as "add get_fundamentals; the fundamentals criterion failed without it", plus a general lesson when one applies to any symbol.
 
 Design choices:
 
 - **The Critic grades the text; the Reflector grades the process.** A low score says the note was weak. Only the plan and the tool log can say why, which is what the next plan needs to change.
+- **Temperature 0 for the Reflector.** Its reply becomes the memory the next plan reads, so sampling noise in reflection would surface as an unexplained change in the next plan.
+- **The Reflector sees the lessons already stored** and is told not to restate one; `remember()` also skips a lesson that matches a stored one exactly.
 - **Criteria carry the facts.** `evaluate(text, criteria)` sees only the note and the criteria string. The criteria therefore include the reference figures from `brief()`; without them the Critic could check that a revenue figure is present but not that it is correct.
 
-### 2.4 Learns across runs (`remember`, memory built)
+### 2.4 Learns across runs (`remember`)
 
 Memory is a dictionary on the agent, created empty in `__init__`:
 
@@ -121,10 +123,11 @@ Memory is a dictionary on the agent, created empty in `__init__`:
 self.memory = {"symbols": {}, "lessons": []}
 ```
 
-`symbols` maps a symbol to the list of notes about it, oldest first. `lessons` holds notes that apply to any symbol. `remember(symbol, note, lesson)` appends the note under its symbol and adds the lesson if it is new. The planner reads both on the next run.
+`symbols` maps a symbol to the list of notes about it, oldest first. `lessons` holds notes that apply to any symbol. `remember(symbol, note, lesson)` appends the note under its symbol and adds the lesson if it is new. `recall(symbol)` renders this symbol's notes and every lesson as one block of text, and two agents read that same block on the next run: the Coordinator when it plans, and the Writer when it drafts.
 
 Design choices:
 
+- **Two readers of memory.** A note can only fix what its reader controls. The first design gave memory to the planner alone, and the first real failure was in the writing (the note mischaracterized the sentiment counts). With no way to change the writing, the planner invented a verification step that did not exist. Memory now reaches the Writer too, and the Reflector, which sees the menu, says whether a failure came from the plan (name a step to add, drop, or change) or from the writing (say what the Writer must do differently). The planner is told that writing notes need no step.
 - **Two kinds of memory.** A note such as "AAPL's earnings criterion failed without fundamentals" should change AAPL's next plan. A lesson such as "run the news chain before routing" should change every plan. Keeping them apart lets the demonstration show each one separately.
 - **In memory, not on disk.** An earlier design wrote memory to `memory/memory.json`. Only the agent reads or writes memory, so nothing else depends on the file, and a file would carry notes from the last session into the next run of the notebook. The run exported to PDF would then begin with memory already full, and the first run would no longer be a cold start. A dictionary on the agent starts empty every time the notebook runs, so the demonstration is reproducible: the learning shown is learning that happened inside that execution.
 
@@ -160,6 +163,10 @@ Problems found while building, and what changed because of them.
 | 2026-10-01 | The Critic failed a P/E rounded to 38.6 against 38.591274. | Criterion 6 now allows rounding. |
 | 2026-10-01 | One Writer call took 49.6 seconds against a 60-second timeout. A timeout inside the writing loop is not caught per step, so it would end the run. | Watching; not changed. |
 | 2026-10-01 | Compared four model variants on the gateway: the empty-memory AAPL plan 10 times each in two interleaved batches, and one fixed note graded 5 times each by the Critic at temperature 0. Same tool sequence: v4.1 Flash 9 of 10, v4.1 Flash pinned to US servers 10 of 10, V4 Flash 6 of 10, V4 Flash 0731 5 of 10. Grading a note that lacked sentiment counts and a named risk, v4.1 Flash failed it every time (score 3 to 4, naming both gaps, plus one false claim that the 52-week range was missing from the data); V4 Flash and V4 Flash 0731 passed it with 8 to 10, and V4 Flash returned the criteria list as its feedback. The 0731 snapshot reported different backend fingerprints across calls, evidence that one model name is served by more than one backend. | Stay on v4.1 Flash. The older models plan less repeatably and grade leniently. The fresh-agent control is added to the demonstration. |
+| 2026-10-02 | First two full cycles on AAPL. Every article in the stand-in chain is labeled neutral, and `Counter` omits labels with no articles, so the data read `{"neutral": 10}`. The Writer correctly stated 0 positive and 0 negative; the Critic could not find those zeros in the data and failed the note, and the Reflector turned the false failure into a wrong lesson ("report only the values present rather than inferring the missing ones as zero"). | `brief()` now always lists all three sentiment labels, zeros included. A representation quirk in the data became a false grade and then a false memory; the reference data a Critic checks against has to be complete. |
+| 2026-10-02 | Following that note, the run-2 planner added a step that does not exist (`verify_sentiment_counts`). The executor logged it as unknown and continued; the Reflector read the log and wrote "Drop the verify_sentiment_counts step: it is not in the tool menu". | Reflection corrected the agent's own planning mistake on the next cycle. The cause is that the run-1 failure was a writing problem, which no change to the plan can fix; see 2.4. |
+| 2026-10-02 | With memory reaching the Writer and the Reflector shown the menu, four AAPL cycles on the stand-ins gave Critic scores of 10, 6, 9, 10. The cycle-2 failure was diagnosed as a writing failure ("must report the news sentiment exactly as the labeled counts show"), with a matching lesson; cycle 4's first draft scored 10 with no revision. No step was invented. | One sequence, so suggestive only: the cycle-2 drop after a perfect cycle 1 shows how much a single score moves with the Writer at temperature 1.0. |
+| 2026-10-02 | One Critic reply hit the 800-token cap inside `reflect()` and `chat()` raised, ending the run. The next 11 Critic replies used 17 to 192 tokens. Cause unknown: a greedy-decoding repetition loop at temperature 0 is the leading guess, and raising the cap would not cure that. | Watching. `chat()` raises without the text, so the next occurrence cannot be diagnosed either; including the end of a truncated reply in the error is proposed for `src/llm.py`. |
 | 2026-10-01 | Adding a research budget in LLM calls to the planner prompt made the first plan leaner in some runs, but results swung with small wording changes and the planner exceeded the budget it was given. With a stored note from a failed run, every variant changed the plan (dropped `get_news`, added `run_chain`). | No budget for now. Tuning the planner against invented notes fits noise; it waits for step 6, when real Critic feedback produces real notes. |
 
 ## 4. Areas to build on

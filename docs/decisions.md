@@ -9,7 +9,7 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | Data | `yfinance` only; every tool response cached as JSON under `data/cache/` and committed | Offline, reproducible reruns; identical data for every teammate; rate limits are a one-time problem |
 | Symbols | AAPL (run twice), NVDA (run once) | Minimum that demonstrates memory across runs |
 | Iteration caps | Evaluator-optimizer max 2 refinements; plan max 8 steps; every call has a timeout | Bounded cost and guaranteed termination |
-| Memory | A dict on the agent, `{"symbols": {...}, "lessons": [...]}`, read by the planner prompt; starts empty on every notebook run | Smallest thing that visibly changes the next run; a cold start each run keeps the exported demo reproducible, and only Lane 4 touches it |
+| Memory | A dict on the agent, `{"symbols": {...}, "lessons": [...]}`, read by the planner and the Writer; starts empty on every notebook run | Smallest thing that visibly changes the next run; a cold start each run keeps the exported demo reproducible, and only Lane 4 touches it. The Writer reads it too because most failures are in the writing, which no change of plan can fix |
 | Framework | None; plain Python as in the Module 7 lab | Rubric grades the patterns, not a framework |
 | Code placement | Graded logic as notebook cells; only plumbing in `src/` | The grader reads a PDF |
 | Python | 3.12, uv, `pyproject.toml` + `uv.lock` committed; `ruff` for PEP 8 | Reproducible env; PEP 8 is required |
@@ -29,3 +29,4 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | 2026-09-22 | Contract shapes settled for evaluator feedback, `reflect`, and `remember`. Calendar: early deliverables Oct 4, assembly Oct 12 to 14, submission Sun Oct 18. | Ian |
 | 2026-09-27 | Added the `agent=` label to `chat()` and the `handoff()` helper; fixed the agent names. | Ian |
 | 2026-10-01 | Memory moved from `memory/memory.json` to a dict on the agent, so every run of the notebook starts cold. | Ian |
+| 2026-10-02 | Memory now reaches the Writer as well as the planner, after a writing failure led the planner to invent a step that does not exist. | Ian |
