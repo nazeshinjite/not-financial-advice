@@ -67,7 +67,7 @@ The agent depends on all three workflow sections, which are built in parallel by
 
 ### Why no agent framework
 
-The rubric grades the patterns, not a library. Plain Python keeps every decision visible in the exported PDF: the plan is a list the reader can print, the dispatch is a dictionary lookup, and memory is a dictionary. A framework such as LangGraph would add a dependency and hide the control flow that the grader needs to see.
+The rubric grades the patterns, not a library. Plain Python keeps every decision visible in the exported notebook: the plan is a list the reader can print, the dispatch is a dictionary lookup, and memory is a dictionary. A framework such as LangGraph would add a dependency and hide the control flow that the grader needs to see.
 
 ## 2. Agent Functions and Capabilities
 
@@ -106,13 +106,14 @@ Design choices:
 
 ### 2.3 Self-reflects (`reflect`)
 
-Reflection has two parts. The Critic scores the final note against the run's criteria using section 3's `evaluate`. The Reflector then reads the whole run (the plan, the tool log, the score history, and the Critic's feedback) and returns a note specific to this symbol, such as "add get_fundamentals; the fundamentals criterion failed without it", plus a general lesson when one applies to any symbol.
+Reflection takes the Critic's last grade of the final note from the writing loop, then the Reflector reads the whole run (the final note, the criteria with the reference data it was written from, the plan, the tool log, the score history, and the Critic's feedback) and returns a note specific to this symbol, such as "add get_fundamentals; the fundamentals criterion failed without it", plus a general lesson when one applies to any symbol.
 
 Design choices:
 
 - **The Critic grades the text; the Reflector grades the process.** A low score says the note was weak. Only the plan and the tool log can say why, which is what the next plan needs to change.
 - **Temperature 0 for the Reflector.** Its reply becomes the memory the next plan reads, so sampling noise in reflection would surface as an unexplained change in the next plan.
 - **The Reflector sees the lessons already stored** and is told not to restate one; `remember()` also skips a lesson that matches a stored one exactly.
+- **One grade per note.** The score reflection records is the writing loop's last grade, not a second Critic call. In testing, a second call on the same note disagreed with the first (a pass, then a 4), and the output paired one grade's score with the other's feedback.
 - **Criteria carry the facts.** `evaluate(text, criteria)` sees only the note and the criteria string. The criteria therefore include the reference figures from `brief()`; without them the Critic could check that a revenue figure is present but not that it is correct.
 
 ### 2.4 Learns across runs (`remember`)
@@ -129,7 +130,7 @@ Design choices:
 
 - **Two readers of memory.** A note can only fix what its reader controls. The first design gave memory to the planner alone, and the first real failure was in the writing (the note mischaracterized the sentiment counts). With no way to change the writing, the planner invented a verification step that did not exist. Memory now reaches the Writer too, and the Reflector, which sees the menu, says whether a failure came from the plan (name a step to add, drop, or change) or from the writing (say what the Writer must do differently). The planner is told that writing notes need no step.
 - **Two kinds of memory.** A note such as "AAPL's earnings criterion failed without fundamentals" should change AAPL's next plan. A lesson such as "run the news chain before routing" should change every plan. Keeping them apart lets the demonstration show each one separately.
-- **In memory, not on disk.** An earlier design wrote memory to `memory/memory.json`. Only the agent reads or writes memory, so nothing else depends on the file, and a file would carry notes from the last session into the next run of the notebook. The run exported to PDF would then begin with memory already full, and the first run would no longer be a cold start. A dictionary on the agent starts empty every time the notebook runs, so the demonstration is reproducible: the learning shown is learning that happened inside that execution.
+- **In memory, not on disk.** An earlier design wrote memory to `memory/memory.json`. Only the agent reads or writes memory, so nothing else depends on the file, and a file would carry notes from the last session into the next run of the notebook. The run exported for submission would then begin with memory already full, and the first run would no longer be a cold start. A dictionary on the agent starts empty every time the notebook runs, so the demonstration is reproducible: the learning shown is learning that happened inside that execution.
 
 ## 3. Evaluation and Iteration
 
@@ -139,13 +140,15 @@ The demonstration runs one agent four times, interleaved: AAPL, NVDA, AAPL, NVDA
 
 - **Each symbol's second run** reads the note its first run wrote. Same symbol, same data, planner at temperature 0; the new input is memory.
 - **NVDA's first run** has no notes of its own but reads AAPL's lessons, so a change there shows a lesson transferring across symbols.
-- **A fresh-agent control.** Temperature 0 does not make the planner repeatable on this gateway, so a difference between two runs could be drift between calls made minutes apart, the way a batch effect separates samples run on different days. Before every run after the first, a new agent with empty memory plans the same symbol. Its plan and the run's were requested moments apart and differ only in memory. If the control matches the earlier plan and the run's plan differs, memory changed the plan; if the control matches the run's plan, memory did not; if it matches neither, the noise is too large for one sample and the control is repeated.
+- **A fresh-agent control.** Temperature 0 does not make the planner repeatable on this gateway, so a difference between two runs could be drift between calls made minutes apart, the way a batch effect separates samples run on different days. Before every run after the first, a new agent with empty memory plans the same symbol. Its plan and the run's were requested moments apart and differ only in memory. Steps and their arguments are compared. If the control matches the run's plan, memory did not change it. If the control matches the earlier plan and the run's plan differs, memory likely changed it; one control suggests this but cannot prove it, because the planner varies between identical requests. If all three differ, the noise is too large for one sample.
 - **Why interleaved.** Learning can only appear when a run that failed is followed by a run that reads its memory, and which run fails is chance. The first order tried (AAPL, AAPL, NVDA) put NVDA's only run last; in the first end-to-end test that was the run that failed, and nothing read its note. Interleaving gives each symbol a second run. It does not guarantee an improvement: a second run can regress, as one did in testing, and only a third would show the correction.
 
 The outputs:
 
-1. For every run after the first: the memory it planned from, its plan beside the earlier plan and its own control, and a verdict line computed from the three (memory changed the plan; the plan matches the control; or the control matches neither). Where memory changed the plan, each step's `why`.
-2. Everything in memory after the last run, and the final note from the last run.
+1. For every run after the first: the memory it planned from, its plan beside the earlier plan and its own control, a verdict line computed from the three, and each step's `why`. For a symbol's second run, the earlier note, what the Critic said about it, and the new note, so the reader can see what memory improved: in testing the improvement came through the Writer as often as through the plan, and a score alone does not show what changed.
+2. Everything in memory after the last run.
+
+A run that raises (a truncated reply, a timeout) prints why and the demonstration continues with the next run, so one failure cannot end the export.
 3. The Critic's score at each round of the writing loop for each run, and the score reflection recorded per run.
 4. Team status: LLM calls and tokens per agent across the demonstration, read from `CALL_LOG`.
 
@@ -171,7 +174,9 @@ Problems found while building, and what changed because of them.
 | 2026-10-02 | One Critic reply hit the 800-token cap inside `reflect()` and `chat()` raised, ending the run. The next 11 Critic replies used 17 to 192 tokens. Cause unknown: a greedy-decoding repetition loop at temperature 0 is the leading guess, and raising the cap would not cure that. | Watching. `chat()` raises without the text, so the next occurrence cannot be diagnosed either; including the end of a truncated reply in the error is proposed for `src/llm.py`. |
 | 2026-10-02 | First end-to-end run of the demonstration on the stand-ins: 21 calls, about 24,600 tokens, 2 minutes 18 seconds. AAPL run 1 scored 10, so its note said to keep the plan; run 2 matched both run 1 and the control, and the verdict line reported that memory did not change the plan. NVDA was the run that failed (the Writer invented sentiment counts) and produced a specific note and lesson, but no later run read them. | The order assumes the first run fails, which is chance. Proposed: interleave AAPL, NVDA, AAPL, NVDA, so each symbol's second run reads its own note and whichever run fails is followed by one that can show the correction. |
 | 2026-10-02 | Second end-to-end run. AAPL run 1's note said to ground risks in figures rather than in a headline's claim; AAPL run 2 dropped `run_chain` and `route_and_analyze`, citing that lesson, while the empty-memory control kept all five steps, so the verdict line credited memory with the change. With no labeled news, the Writer invented sentiment counts (2 positive, 0 negative, 1 neutral from 10 headlines) and scored 4. Reflection caught it: the new AAPL note says to run `run_chain` before stating counts, and a new lesson generalizes it. No later run read either. | The control attributes a change correctly in both directions: memory can make a plan worse, and the demonstration has to be able to show the correction. Feeds the run-order decision. |
-| 2026-10-02 | The Writer wrote British spellings ("capitalisation", "categorised", "defence") into a final note, which lands in the graded PDF. | The Writer prompt now ends "Write in American English." Three test notes afterward used "capitalization" and no British forms. |
+| 2026-10-02 | The Writer wrote British spellings ("capitalisation", "categorised", "defence") into a final note, which lands in the graded export. | The Writer prompt now ends "Write in American English." Three test notes afterward used "capitalization" and no British forms. |
+| 2026-10-02 | Adversarial review of the agent notebook by a second model (Codex, GPT-6 Astra), told the goal of minimal, interpretable code. Seven findings applied: the documented swap to the real lanes omitted `evaluate`, which `reflect()` needs; the Reflector never saw the note or the reference data, though this document said it read them; any exception outside a plan step ended the demonstration; the improvement from memory was shown only as a score, never as the two notes; the verdict claimed causation from one control and ignored arguments; two malformed plans could crash the tables; and `run()` returned a per-run call log nothing read. | Each fixed as listed in this section and in 2.3. Long source lines (59 over 99 characters) left as they are: the notebook is submitted as HTML, where code scrolls rather than clips. |
+| 2026-10-02 | A truncation ended a demonstration run a second time, inside the writing loop. The model card for DeepSeek V4.1 Flash recommends temperature 1.0 with top_p 0.95 or 1.0 and says nothing about temperature 0. Measured with an 800-token cap: the Critic truncated 1 of 60 times at temperature 0 and 0 of 120 at 1.0 (top_p 0.95 or 1.0); the Writer never exceeded 330 tokens in 120 calls. The captured truncation was not a repetition loop: the Critic reasoned aloud inside its JSON feedback string until the cap. At 1.0 the Critic graded as accurately (every note lacking sentiment counts failed, at every setting) with a wider score spread (standard deviation 1.5 against 0.9). The planner chose the five-step plan 8 of 10 times at 1.0, against 9 of 10 at 0. | `chat()` now names the agent and shows the end of a truncated reply. Whether to move the planner, Reflector, and Critic to the card's temperature is pending. |
 | 2026-10-01 | Adding a research budget in LLM calls to the planner prompt made the first plan leaner in some runs, but results swung with small wording changes and the planner exceeded the budget it was given. With a stored note from a failed run, every variant changed the plan (dropped `get_news`, added `run_chain`). | No budget for now. Tuning the planner against invented notes fits noise; it waits for step 6, when real Critic feedback produces real notes. |
 
 ## 4. Areas to build on
@@ -192,6 +197,6 @@ Problems found while building, and what changed because of them.
 | `evaluate(text, criteria)` | 3 | `{"score": 1-10, "pass": bool, "feedback": list[str]}` |
 | `evaluator_optimizer(generate, criteria, max_rounds=2)` | 3 | `{"final": str, "history": [{"round", "score", "pass", "feedback"}]}` |
 | `ResearchAgent.plan(symbol)` | 4 | `[{"tool", "args", "why"}]`, at most 8 |
-| `ResearchAgent.run(symbol)` | 4 | `{"symbol", "plan", "log", "results", "criteria", "report", "history", "calls"}` |
+| `ResearchAgent.run(symbol)` | 4 | `{"symbol", "plan", "log", "results", "criteria", "report", "history"}` |
 | `ResearchAgent.reflect(symbol, run_result)` | 4 | `{"score", "note", "lesson"}` |
 | `ResearchAgent.remember(symbol, note, lesson=None)` | 4 | nothing; updates `self.memory` |
