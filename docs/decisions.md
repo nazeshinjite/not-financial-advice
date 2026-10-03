@@ -17,7 +17,7 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | Fundamentals units | `get_fundamentals` returns money in billions (`market_cap_b`, `revenue_b`), ratios as percentages (`*_pct`), plus a `currency` field; units are in the key names | Raw Yahoo integers (302970011648) were misread by the model as $3.03T in one of three simulated runs; scaling once in the tool means no prompt ever formats numbers |
 | NLP library | spaCy 3.8 with `en_core_web_sm` 3.8.0 declared as a dependency (installed by `uv sync`, no download step) | Lane 1's preprocess and extract steps; a pinned wheel means every machine has the same model |
 | Evaluator feedback shape | `evaluate()` returns `feedback` as a list of strings, each naming the criterion it failed; `refine()` takes that list | Easier to print, count, and feed back than one paragraph |
-| Reflection and memory shape | `reflect(symbol, run_result) -> {"score", "note", "lesson"}`; `remember(symbol, note, lesson=None)` | A useful note needs the plan and tool log, not only the report; a general lesson needs somewhere to go |
+| Reflection and memory shape | `reflect(symbol, run_result) -> {"score", "note", "lesson"}`, note and lesson each tagged `Plan:` or `Writing:`, learned from the first draft, null when the first draft drew no feedback; `remember(symbol, note, lesson=None)` stores only what is not null | A useful note needs the plan and tool log, not only the report; a general lesson needs somewhere to go; notes from clean runs made later notes worse in testing, and the writing loop rescues most weak drafts, so only the first draft shows what to learn |
 | Agent visibility | `chat(..., agent="Name")` records the acting agent in `CALL_LOG`; `handoff(sender, receiver, content)` prints each pass of work between agents; fixed names: Coordinator, News Analyst, Router, Earnings/News/Market Specialist, Writer, Critic, Reflector | The professor grades agent interaction; this shows it in the exported notebook the way the Module 7 lab does, with no framework |
 
 ## Change log
@@ -32,4 +32,6 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | 2026-10-01 | Memory moved from `memory/memory.json` to a dict on the agent, so every run of the notebook starts cold. | Ian |
 | 2026-10-02 | Memory now reaches the Writer as well as the planner, after a writing failure led the planner to invent a step that does not exist. | Ian |
 | 2026-10-02 | Submission format changed from PDF to HTML. | Ian |
+| 2026-10-02 | Reflection notes tagged Plan: or Writing:, and none written after a passing run: with the old prompt, memory lowered later first drafts by 0.28 points on average; with the new one it raised them by 0.63. | Ian |
+| 2026-10-03 | The Reflector learns from the first draft's feedback, not only the final grade: runs leaving memory rose from 2 of 8 to 6 of 8, and memory raised the next first draft by 1.17 points on average. | Ian |
 | 2026-10-02 | Demonstration order changed from AAPL, AAPL, NVDA to AAPL, NVDA, AAPL, NVDA: in the first end-to-end run, NVDA was the run that failed and nothing read its note. | Ian |
