@@ -36,7 +36,7 @@ from src.llm import chat, handoff  # noqa: E402
 # - **Criteria are checkable, not vague.** Each one names something the Critic can look for in the text and verify in the data ("states the profit margin percent"), not a judgment like "is insightful".
 # - **The criteria carry the reference data.** `make_criteria` appends the data the analysis was written from, so the Critic checks that a figure is *correct*, not only that one is present. Lane 4 builds its criteria the same way.
 # - **The score is computed, not guessed.** The Critic marks each criterion met or not met, and the score is the share met, scaled to 10. In team testing, a model asked for a 1-to-10 score directly gave the same text scores about two points apart; a per-criterion yes or no is more stable, and the feedback names exactly what to fix.
-# - **The loop always ends with a grade of the final text**, so `history[-1]` is the grade of `final`, and `history[0]` records what the first draft got wrong. The agent in Lane 4 reads both.
+# - **The loop keeps the best draft, and always ends with its grade.** A revision can score lower than the draft it revised, so `final` is the best-scoring draft (the latest one on a tie), and `history[-1]` is always the grade of `final`. `history[0]` records what the first draft got wrong. The agent in Lane 4 reads both.
 # - **The loop is bounded**: at most two revisions (five LLM calls in the worst case), so it always terminates.
 
 # ### Reference data and criteria
@@ -69,7 +69,7 @@ CRITERIA = """\
 4. States the trailing or forward P/E ratio and says in one phrase what it suggests about valuation.
 5. Refers to at least one specific headline from the reference data.
 6. Names at least two distinct risks, each supported by a figure or a headline in the reference data.
-7. Every figure in the text matches the reference data (rounding is fine), and it states no fact or comparison the data does not contain.
+7. Every figure in the text matches the reference data (rounding and unit changes such as 4905.54 billion as 4.91 trillion are fine), and the text states no fact or comparison the data does not contain.
 8. Makes no recommendation to buy, sell, or hold (saying that no recommendation is made is fine).
 9. Is written in plain words for a reader: no data field names such as revenue_b or change_pct.
 """
@@ -111,9 +111,10 @@ You are the Critic on an investment research team. Judge the text against each n
 separately, using the reference data to check every figure. A criterion is met only if the text
 clearly satisfies it.
 Reply with JSON only, in exactly this shape:
-{"criteria": [{"number": 1, "met": true, "reason": "<one sentence>"}, ...]}
-Include every criterion, in order. "met" is true or false. For a criterion that is not met, the
-reason says what is missing or wrong, specifically enough for a writer to fix it.
+{"criteria": [{"number": 1, "reason": "<one sentence>", "met": true}, ...]}
+Include every criterion, in order. Write the reason first, then set "met" (true or false) to agree
+with it. For a criterion that is not met, the reason says what is missing or wrong, specifically
+enough for a writer to fix it.
 """
 
 
@@ -188,8 +189,8 @@ def refine(text, feedback, reference=""):
 
 
 # generate() -> evaluate -> refine -> evaluate, stopping on a pass or after max_rounds revisions.
-# The last step is always a grade of the final text: history[-1] grades "final", and history[0]
-# records what the first draft got wrong. "drafts" keeps every version, for the before/after view.
+# Returns the best-scoring draft as "final"; history[-1] is always the grade of "final", and
+# history[0] records what the first draft got wrong. "drafts" keeps every version, in order.
 def evaluator_optimizer(generate, criteria, max_rounds=2):
     text = generate()
     drafts = [text]
@@ -205,7 +206,14 @@ def evaluator_optimizer(generate, criteria, max_rounds=2):
         handoff("Writer", "Critic", f"revision {round_number}, {len(text.split())} words")
         check = evaluate(text, criteria)
         history.append({"round": round_number, **check})
-    return {"final": text, "history": history, "drafts": drafts}
+    # Keep the best-scoring draft (the latest on a tie): a revision can score lower than the draft it
+    # revised. When the best is not the last, its grade is repeated at the end, marked "kept", so
+    # history[-1] is always the grade of "final". No extra LLM call is made.
+    best = max(range(len(history)), key=lambda i: (history[i]["score"], i))
+    if best != len(history) - 1:
+        history.append({**history[best], "kept": True})
+        handoff("Critic", "Writer", f"keeping round {best} ({history[best]['score']}/10); later revisions scored lower")
+    return {"final": drafts[best], "history": history, "drafts": drafts}
 
 
 # ## Demonstration
@@ -214,7 +222,7 @@ def evaluator_optimizer(generate, criteria, max_rounds=2):
 # 
 # Put demo code inside the `if __name__ == "__main__":` block below. It runs normally in this notebook, but not when another lane imports this notebook's `.py` export, so importing your functions never re-runs your LLM calls and plots.
 # 
-# Three drafts go through the loop. The first is an analysis of AAPL from the plain Writer prompt; a full-length draft from the data often meets every criterion at once, and then the loop stops after one grading, which is the early stop working as designed. The other two are deliberately thin two-sentence drafts of NVDA and AAPL, which miss most of the checklist and show the loop finding the gaps and the Writer filling them. Each line below is one handoff between the Writer and the Critic.
+# Three drafts go through the loop. The first is a full analysis of AAPL from the plain Writer prompt: when it meets every criterion, the loop stops after one grading, and when it does not, it shows how far two revisions take a draft that is already close. The other two are deliberately thin two-sentence drafts of NVDA and AAPL, which miss most of the checklist and show the loop finding the gaps and the Writer filling them. Each line below is one handoff between the Writer and the Critic.
 
 # In[7]:
 
@@ -232,6 +240,7 @@ if __name__ == "__main__":
         ("NVDA, thin draft", "NVDA", thin_draft),
         ("AAPL, thin draft", "AAPL", thin_draft),
     ]
+    demo_start = len(llm.CALL_LOG)  # count only this demonstration's calls, even after a re-run
     runs = {}
     for label, symbol, writer in cases:
         print(f"\n=== {label} ===")
@@ -245,7 +254,7 @@ if __name__ == "__main__":
 
 # ### Score per round
 # 
-# One row per Critic grading. `failed` lists the numbers of the criteria the draft did not meet.
+# One row per Critic grading. `failed` lists the numbers of the criteria the draft did not meet. When a revision scored lower than an earlier draft, a last row marks the earlier draft kept as final.
 
 # In[8]:
 
@@ -256,13 +265,14 @@ if __name__ == "__main__":
         for h in run["history"]:
             failed = [c["number"] for c in h["checks"] if not c["met"]]
             rows.append({"draft": label, "round": h["round"], "score": h["score"], "pass": h["pass"],
-                         "failed": ", ".join(str(n) for n in failed) or "none"})
+                         "failed": ", ".join(str(n) for n in failed) or "none",
+                         "note": "best draft, kept as final" if h.get("kept") else ""})
     display(pd.DataFrame(rows))
 
     fig, ax = plt.subplots(figsize=(7, 4))
     for label, run in runs.items():
-        rounds = [h["round"] for h in run["history"]]
-        ax.plot(rounds, [h["score"] for h in run["history"]], marker="o", label=label)
+        graded = [h for h in run["history"] if not h.get("kept")]  # one point per grading
+        ax.plot([h["round"] for h in graded], [h["score"] for h in graded], marker="o", label=label)
     ax.axhline(10, color="gray", linestyle=":", linewidth=1)
     ax.set_xticks([0, 1, 2], ["first draft", "revision 1", "revision 2"])
     ax.set(title="Critic score per round", ylabel="score (criteria met, out of 10)", ylim=(0, 10.5))
@@ -299,7 +309,7 @@ if __name__ == "__main__":
             print(textwrap.fill(paragraph, 100) if paragraph.strip() else "")
 
     print(f"Draft: {best}. Score {first['score']}/10 -> {last['score']}/10 "
-          f"after {len(run['history']) - 1} revision(s).")
+          f"after {len(run['drafts']) - 1} revision(s).")
     show("What the Critic said about the first draft", "\n".join(first["feedback"]) or "no failed criteria")
     show("First draft", run["drafts"][0])
     show("Final text", run["final"])
@@ -313,7 +323,7 @@ if __name__ == "__main__":
 
 
 if __name__ == "__main__":
-    calls = pd.DataFrame(llm.CALL_LOG)
+    calls = pd.DataFrame(llm.CALL_LOG[demo_start:])
     calls["tokens"] = calls["prompt_tokens"].fillna(0) + calls["completion_tokens"].fillna(0)
     display(calls.groupby("agent").agg(calls=("agent", "size"), tokens=("tokens", "sum"),
                                        seconds=("seconds", "sum")).astype(int))
