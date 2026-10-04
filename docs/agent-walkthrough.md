@@ -5,12 +5,12 @@ This document guides a reader who has not opened the notebook through the agent 
 | Part | Status |
 |---|---|
 | Memory store (`__init__`) | Built, step 1 |
-| Step registry, planner menu, development stand-ins | Built, step 2 |
+| Step registry, planner menu | Built, step 2 |
 | `plan()` | Built, step 3; lean-plan tuning waits for step 6 |
 | `run()` with `brief()`, `write_report()`, `report_criteria()` | Built, step 4 |
 | `reflect()`, `remember()` | Built, step 5 |
 | Demonstration and figures | Built, step 6 |
-| Real lane functions in place of stand-ins | Lane 1 in (Oct 3); Lanes 2 and 3 after they deliver |
+| Real lane functions in place of stand-ins | All three in (Lane 1 on Oct 3, Lanes 2 and 3 on Oct 4) |
 
 ## 1. Agent Design and Workflows
 
@@ -64,7 +64,7 @@ Two small modules sit under every lane. `src/llm.py` holds `chat()`, the only pa
 
 ### Building before the lanes exist
 
-The agent depends on all three workflow sections, which are built in parallel by other team members. To build it before they deliver, `dev/agent.ipynb` carries a development-only cell of stand-ins with the same names, arguments, and return shapes as the real functions. Lane 1 delivered on Oct 3, so `run_chain` is now the real chain, imported from its script export; until Lanes 2 and 3 deliver, `route_and_analyze` sends every item to the news route, and `evaluate` and `evaluator_optimizer` make real Critic and Writer calls so reflection has a real score to work with. The stand-in Critic judges each criterion separately and the score is the share met, the design proposed to Lane 3 (see the iteration log). As each lane delivers, its stand-ins are replaced by an import and nothing else in the agent changes. The contracts in the appendix are what make the swap safe.
+The agent depends on all three workflow sections, which are built in parallel by other team members. To build it before they delivered, `dev/agent.ipynb` carried a development-only cell of stand-ins with the same names, arguments, and return shapes as the real functions. The stand-in Critic judged each criterion separately and scored the share met, the design proposed to Lane 3, which Lane 3 adopted. All three lanes have now delivered, and that cell holds three imports from their script exports; nothing else in the agent changed when they swapped in. The contracts in the appendix are what made the swap safe. In `notebook.ipynb`, sections 1 to 3 define the same functions above section 4, so the import cell is not copied at assembly.
 
 ### Why no agent framework
 
@@ -97,11 +97,12 @@ STEPS = {
 }
 ```
 
-Next to it, `MENU` is the text the Coordinator reads when it plans: one entry per step giving its arguments, what it returns, and what it costs in LLM calls (none for the data tools, one per article for the chain, two per article for routing). Stating the cost is what gives a lean plan a reason to exist. The arguments shown are the ones whose responses are in the committed cache (`period="6mo"`); any other value still works but fetches live from Yahoo.
+Next to it, `MENU` is the text the Coordinator reads when it plans: one entry per step giving its arguments, what it returns, and what it costs in LLM calls (none for the data tools, one per article for the chain, two per routed article). Stating the cost is what gives a lean plan a reason to exist. The arguments shown are the ones whose responses are in the committed cache (`period="6mo"`); any other value still works but fetches live from Yahoo.
 
 Design choices:
 
-- **One special case for data flow.** `route_and_analyze` needs a batch of items. The executor passes it the articles from `run_chain` when the plan ran the chain, and the raw cached news when it did not. Every other step is called as `tool(symbol, **args)`.
+- **One special case for data flow.** `route_and_analyze` needs a batch of items. The executor passes it `run_chain`'s whole result when the plan ran the chain (the labeled articles, plus the summary Lane 2's News Specialist reads), and the raw cached news when it did not. Every other step is called as `tool(symbol, **args)`.
+- **Routing is capped at five articles.** It costs two LLM calls per article (one route, one specialist analysis), run one after another, and with all ten articles it was the slowest step of a run (20 calls, about 90 seconds). Five keep every specialist in play at half the cost.
 - **A failed step is recorded, not raised.** Each step runs inside a `try`; a failure is written to the run log with its error and the run continues. A research run that loses one source should still produce a note, and the failure becomes evidence for reflection.
 - **One compact view of the results.** Price history arrives as 125 daily closes, which would bloat every prompt. A `brief()` function reduces the results to the figures a note would cite, and the Writer, the Critic's criteria, and the Reflector all read that same view, so the numbers the Writer quotes are the numbers the Critic checks. It rounds fundamentals to two decimals (Yahoo's P/E arrives as 28.099874, and the Writer quotes exactly) and counts the chain's sentiment and topic labels, zeros included.
 - **The note goes through the section 3 loop.** The Writer's draft is passed to `evaluator_optimizer` as its generator, so every report the agent produces has been scored and, if needed, revised.
@@ -160,7 +161,7 @@ The outputs:
 
 A run that raises (a truncated reply, a timeout) is retried once: at temperature 1.0 such failures are rare and random (4 in about 600 test calls), so a second attempt usually succeeds, but a demonstration makes 60 to 100 calls and would otherwise often lose a run. Retrying is safe because only `remember()` changes memory. Two failures skip the run and the demonstration continues. The learning agent's run, reflection, and memory update come before its twin, and a twin that fails twice only leaves that run without a comparison.
 
-Known variation: every agent samples at temperature 1.0, so plans, scores, and wording differ between exports of the notebook. In testing, the planner chose the same four-step plan 20 times in 20, and the Critic's score for one note varied with a standard deviation of about 1.5 points while its pass or fail held. The twins are what make any one export readable. A rough estimate is 40 LLM calls per run with the real lanes, most of them in routing (one route and one analysis per article); the three twins add about 120.
+Known variation: every agent samples at temperature 1.0, so plans, scores, and wording differ between exports of the notebook. In testing, the planner chose the same four-step plan 20 times in 20, and the Critic's score for one note varied with a standard deviation of about 1.5 points while its pass or fail held. The twins are what make any one export readable. With all three real lanes a run makes about 26 LLM calls (11 in the chain, 10 in routing, 2 to 5 in the writing loop, plus the planner and the Reflector), and a full demonstration with three twins about 180, roughly 11 minutes of model time.
 
 ### Iteration log
 
@@ -197,6 +198,8 @@ Problems found while building, and what changed because of them.
 | 2026-10-03 | Plans often included the news tool alongside `run_chain`, which fetches the same cached articles itself (its first stage calls `tools.get_news`), so those plans read the news twice; some plans dropped it, correctly. | The news tool is no longer a planner step; `brief()` takes the headlines from the chain's articles, so they still reach the Writer and the Critic's reference data. Routing still falls back to the raw news when a plan skips the chain. |
 | 2026-10-03 | With the news tool folded into `run_chain`, 20 of 20 plans were the same four steps, so plan learning (which fired only when run 1 planned without the chain) had nothing left to learn. | Plan learning dropped: the planner no longer reads memory, the Reflector writes notes and lessons for the Writer only, and the `Plan:`/`Writing:` tags, the planner's memory rules, and the plan comparison table are gone. |
 | 2026-10-03 | Full demonstration with writing-only memory and first-draft grades shown: no notebook errors, 112 calls. First drafts, memory against twin: NVDA run 1 9 against 7 (reading only AAPL's lesson, it named the most common topic; the twin missed it), AAPL run 2 10 against 10, NVDA run 2 9 against 7 (the twin again missed criterion 7). Criterion 4 (a supported risk) stayed missed on NVDA with memory: a note asking for a risk anchored to a figure did not fix it. | None for criterion 7. Criterion 4 is the agent's weakest learning target: it asks for a judgment the Critic grades strictly, where criterion 7 asks for a fact. |
+| 2026-10-04 | Lanes 2 and 3 delivered (#4, #3). Lane 3 adopted the per-criterion Critic, reply checking with one retry, a 1500-token budget, a loop that ends on a grade, and keeping the best-scoring draft. Two agent cycles with all three real lanes ran clean (37 calls each before the routing cap); the AAPL lesson reached NVDA's first draft through all three. One cycle failed in the planner: it used all 800 tokens and returned nothing visible, the second such event. | The stand-ins were replaced by imports; routing gets the chain's whole result and the first five articles; the planner gets 1500 tokens, with the demonstration's retry as the backstop. |
+| 2026-10-04 | Full demonstration with all three real lanes: no notebook errors, no retries, 180 calls, 637 seconds of model time, 100 handoff lines. First drafts, memory against twin: NVDA run 1 10 against 7, AAPL run 2 10 against 9, NVDA run 2 10 against 9; every twin missed criterion 7, and every memory run met it, NVDA run 1 from AAPL's lesson alone. Twice the Reflector wrote a "keep the same approach" note after a clean first draft, where its prompt asks for none. | None yet; the stray notes did no harm in this run. |
 | 2026-10-01 | Adding a research budget in LLM calls to the planner prompt made the first plan leaner in some runs, but results swung with small wording changes and the planner exceeded the budget it was given. With a stored note from a failed run, every variant changed the plan (dropped `get_news`, added `run_chain`). | No budget for now. Tuning the planner against invented notes fits noise; it waits for step 6, when real Critic feedback produces real notes. |
 
 ## 4. Areas to build on
