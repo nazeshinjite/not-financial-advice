@@ -295,7 +295,7 @@ def visualize(result: dict):
         chart_axis.spines["top"].set_visible(False)
         chart_axis.spines["right"].set_visible(False)
 
-    #figure.tight_layout()
+    figure.tight_layout()
     plt.show()
 
 
