@@ -28,3 +28,4 @@ Settings every lane depends on. Changing one is a team decision, logged here wit
 | 2026-09-20 | GLM-5.3 Flash evaluated as default and rejected (mandatory reasoning, wrapped JSON, stray fences); DeepSeek V4.1 Flash stays. | Ian |
 | 2026-09-22 | Contract shapes settled for evaluator feedback, `reflect`, and `remember`. Calendar: early deliverables Oct 4, assembly Oct 12 to 14, submission Sun Oct 18. | Ian |
 | 2026-09-27 | Added the `agent=` label to `chat()` and the `handoff()` helper; fixed the agent names. | Ian |
+| 2026-10-09 | Added an `other` article topic so Lane 1 can exclude irrelevant or out-of-scope articles from the returned news and summary. | Jackson |
