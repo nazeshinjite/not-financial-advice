@@ -11,7 +11,7 @@
 import sys
 sys.path.insert(0, "..")  # this notebook lives in dev/; make src/ importable
 
-from src import llm, tools
+from src import tools
 from src.llm import chat, handoff
 
 
@@ -79,10 +79,10 @@ def route(item):
     )
 
     label = str(result.get("route", "")).strip().lower()
+
     if label not in VALID_ROUTES:
-        raise ValueError(
-            f"Router returned {label!r}; expected one of {sorted(VALID_ROUTES)}"
-        )
+        label = "news"
+
     return label
 
 
