@@ -5,7 +5,7 @@
 # 
 # Owner: Jackson Kenyon. Development notebook; finished cells are copied into `notebook.ipynb` section 1 at assembly. See `docs/` and `setup.md`.
 
-# In[48]:
+# In[4]:
 
 
 import sys
@@ -24,7 +24,7 @@ from src.llm import handoff
 # 
 # **Demonstration:** run on AAPL from the cache and display the symbol and its combined news summary.
 
-# In[49]:
+# In[5]:
 
 
 def ingest(symbol):
@@ -62,6 +62,10 @@ def preprocess(articles: list[dict], nlp, max_tokens: int = 300) -> list[dict]:
 
     return preprocessed_articles
 
+class _ClassificationValidationError(ValueError):
+    pass
+
+
 def classify(article: dict, symbol: str) -> dict:
     sentiment=["negative","neutral","positive"]
     topic=["earnings","news","market","other"]
@@ -82,33 +86,45 @@ def classify(article: dict, symbol: str) -> dict:
 
     User=f"Symbol: {symbol}\nTitle: {article['title']}\nSummary: {article['summary']}"
 
-    output=chat(
-        system=System,
-        user=User,
-        json_mode=True,
-        temperature=1,
-        agent="News Analyst"
-    )
+    for attempt in (1, 2):
+        output=chat(
+            system=System,
+            user=User,
+            json_mode=True,
+            temperature=1,
+            agent="News Analyst"
+        )
 
-    if not isinstance(output, dict):
-        raise ValueError("Classifier reply must be a JSON object.")
+        try:
+            if not isinstance(output, dict):
+                raise _ClassificationValidationError("Classifier reply must be a JSON object.")
 
-    normalized_output = {}
-    for label_name, allowed_labels in (("sentiment", sentiment), ("topic", topic)):
-        raw_label = output.get(label_name)
-        if not isinstance(raw_label, str):
-            raise ValueError(
-                f"Invalid {label_name} label {raw_label!r}; expected one of {allowed_labels}."
+            normalized_output = {}
+            for label_name, allowed_labels in (("sentiment", sentiment), ("topic", topic)):
+                raw_label = output.get(label_name)
+                if not isinstance(raw_label, str):
+                    raise _ClassificationValidationError(
+                        f"Invalid {label_name} label {raw_label!r}; expected one of {allowed_labels}."
+                    )
+
+                normalized_label = raw_label.strip().lower()
+                if normalized_label not in allowed_labels:
+                    raise _ClassificationValidationError(
+                        f"Invalid {label_name} label {normalized_label!r}; expected one of {allowed_labels}."
+                    )
+                normalized_output[label_name] = normalized_label
+        except _ClassificationValidationError as error:
+            if attempt == 2:
+                raise
+            print(f"Classifier reply rejected ({error}); asking again.")
+            User = (
+                f"{User}\n\nYour previous reply was rejected: {error}\n"
+                "Try again. Return exactly one JSON object with sentiment set to negative, neutral, or positive "
+                "and topic set to earnings, news, market, or other."
             )
+            continue
 
-        normalized_label = raw_label.strip().lower()
-        if normalized_label not in allowed_labels:
-            raise ValueError(
-                f"Invalid {label_name} label {normalized_label!r}; expected one of {allowed_labels}."
-            )
-        normalized_output[label_name] = normalized_label
-
-    return normalized_output
+        return normalized_output
 
 
 def extract(article, nlp):
@@ -305,9 +321,9 @@ def visualize(result: dict):
 # 
 # Put demo code inside the `if __name__ == "__main__":` block below. It runs normally in this notebook, but not when another lane imports this notebook's `.py` export, so importing your functions never re-runs your LLM calls and plots.
 
-# In[50]:
+# In[7]:
 
 
 if __name__ == "__main__":
-    result = run_chain("AAPL")
+    result = run_chain("NVDA")
     visualize(result)
