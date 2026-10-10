@@ -53,9 +53,10 @@ def _complete(messages, json_mode, max_tokens, temperature, think, agent):
         "completion_tokens": usage.completion_tokens if usage else None,
         "seconds": round(time.time() - started, 2),
     })
-    if choice.finish_reason == "length":
-        raise ValueError(f"Reply truncated at max_tokens={max_tokens}; raise it.")
     text = choice.message.content or ""
+    if choice.finish_reason == "length":
+        # The end of the reply shows what the model was doing when it ran out: rambling, looping, or long.
+        raise ValueError(f"Reply truncated at max_tokens={max_tokens} ({agent}); raise it. It ended: {text[-200:]!r}")
     if not text.strip():
         raise ValueError("The model returned an empty reply.")
     return text

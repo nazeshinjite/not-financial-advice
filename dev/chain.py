@@ -62,24 +62,25 @@ def preprocess(articles: list[dict], nlp, max_tokens: int = 300) -> list[dict]:
 
     return preprocessed_articles
 
-def classify(article: dict) -> dict:
+def classify(article: dict, symbol: str) -> dict:
     sentiment=["negative","neutral","positive"]
     topic=["earnings","news","market","other"]
     # Stage 3: one chat(..., json_mode=True) call per article -> {"sentiment", "topic"}.
 
     System=(
-        "You are a financial news analyst. Classify the article using its title and summary.\n"
+        "You are a financial news analyst. Classify the article using its title, summary, and company symbol.\n"
+        "The symbol identifies the company the article must be about to count as relevant.\n"
         "Choose the topic that best describes the article's dominant subject, even if it touches multiple areas:\n"
         "- earnings: reported quarterly or annual results, revenue, EPS, margins, earnings growth, financial guidance, or an earnings call.\n"
         "- market: stock-price performance, valuation, trading activity, analyst price targets, sector moves, or broader market/macro effects on the stock.\n"
         "- news: company events that are not primarily earnings or market-price analysis, such as products, leadership, regulation, litigation, partnerships, operations, or corporate announcements.\n"
-        "- other: the article does not fit any of those categories or is unrelated to the company or financial markets.\n"
+        "- other: the article is not mainly about the company identified by the symbol, or is unrelated to financial markets.\n"
         "Return a JSON object with exactly two keys:\n"
         '- "sentiment": one of "positive", "negative", or "neutral"\n'
         '- "topic": one of "earnings", "news", "market", or "other"'
     )
 
-    User=f"Title: {article['title']}\nSummary: {article['summary']}"
+    User=f"Symbol: {symbol}\nTitle: {article['title']}\nSummary: {article['summary']}"
 
     output=chat(
         system=System,
@@ -174,15 +175,18 @@ def run_chain(symbol):
     fetched_articles = ingest(symbol)
     articles = preprocess(fetched_articles, nlp)
     labeled_articles = []
+    dropped_count = 0
 
     for article in articles:
         labeled_article = article.copy()
-        labeled_article.update(classify(labeled_article))
+        labeled_article.update(classify(labeled_article, symbol))
         if labeled_article["topic"] == "other":
+            dropped_count += 1
             continue
         labeled_article["entities"] = extract(labeled_article, nlp)
         labeled_articles.append(labeled_article)
 
+    print(f"Dropped {dropped_count} of {len(articles)} articles as other.")
     summary = summarize(symbol, labeled_articles)
     return {
         "symbol": symbol,
@@ -307,4 +311,3 @@ def visualize(result: dict):
 if __name__ == "__main__":
     result = run_chain("AAPL")
     visualize(result)
-

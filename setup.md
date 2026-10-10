@@ -84,7 +84,7 @@ uv run jupyter lab
 
 ## Data and the cache
 
-All market data comes from Yahoo Finance through `yfinance`, and every tool response is cached as JSON under `data/cache/` and **committed**. The cache is the data: market-data calls replay offline whenever their exact arguments have a cached file (the committed set is AAPL and NVDA at the default arguments), every teammate sees identical numbers, and the exported PDF matches what the cells produce. LLM calls always contact the configured server. Do not refetch casually; a refetch changes every downstream output for everyone.
+All market data comes from Yahoo Finance through `yfinance`, and every tool response is cached as JSON under `data/cache/` and **committed**. The cache is the data: market-data calls replay offline whenever their exact arguments have a cached file (the committed set is AAPL and NVDA at the default arguments), every teammate sees identical numbers, and the exported HTML matches what the cells produce. LLM calls always contact the configured server. Do not refetch casually; a refetch changes every downstream output for everyone.
 
 To refetch on purpose (for example, to add a symbol), pass `refresh=True` and commit the new files:
 
@@ -96,7 +96,7 @@ tools.get_prices("AAPL", refresh=True)  # deliberately replace an existing cache
 
 ## Where code lives
 
-- `notebook.ipynb` is the deliverable and holds all graded code (the three workflows and the agent class) as cells, because the grader reads a PDF.
+- `notebook.ipynb` is the deliverable and holds all graded code (the three workflows and the agent class) as cells, because the grader reads the exported HTML.
 - `src/llm.py` and `src/tools.py` are the only modules: the LLM wrapper and the cached data tools. Nothing else goes in `src/`.
 - `dev/<lane>.ipynb` is where each lane develops. After changing your functions, regenerate the script export so the agent lane can import them:
 
@@ -140,10 +140,10 @@ uv run ruff format src dev
 
 ## Export
 
-The submission is a PDF of `notebook.ipynb`. Export early and look at it; an unreadable export is the zero-point condition.
+The submission is an HTML export of `notebook.ipynb`. The spec accepts PDF or HTML; HTML keeps long code lines scrollable where printing to PDF clips them. Export early and look at it; an unreadable export is the zero-point condition.
 
 ```bash
-uv run jupyter nbconvert --to html notebook.ipynb        # then print the HTML to PDF from a browser
+uv run jupyter nbconvert --to html notebook.ipynb        # writes notebook.html; open it in a browser and read it end to end
 ```
 
 ## Troubleshooting

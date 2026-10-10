@@ -47,7 +47,7 @@ Lane assignments and the contribution log are recorded in [`docs/contributions.m
 
 ### Data
 
-All market data comes from Yahoo Finance through the `yfinance` package: daily price history, company fundamentals (`Ticker.info` and financial statements), and recent news headlines with summaries. Every tool response is cached as JSON under `data/cache/` and committed, so the notebook reruns offline, results are reproducible, and API rate limits never interrupt a demonstration. The demonstration uses two symbols: one run twice to show memory at work, and one run once.
+All market data comes from Yahoo Finance through the `yfinance` package: daily price history, company fundamentals (`Ticker.info` and financial statements), and recent news headlines with summaries. Every tool response is cached as JSON under `data/cache/` and committed, so the notebook reruns offline, results are reproducible, and API rate limits never interrupt a demonstration. The demonstration uses two symbols, each run twice in alternation, so each one's second run shows memory at work.
 
 ### Questions we are exploring
 
@@ -58,7 +58,7 @@ All market data comes from Yahoo Finance through the `yfinance` package: daily p
 
 ### How the work is organized
 
-The notebook is the deliverable and the grader reads it as a PDF, so every graded behavior is implemented as code cells in the notebook itself, under a heading that names the requirement, followed by the cells that run it and plot it. Only plumbing that no rubric line is about lives in `src/`: the LLM wrapper and the cached data tools. During development each component is built in its own notebook under `dev/`, so four people can commit in parallel without editing one file; the final notebook is assembled from those in the last week.
+The notebook is the deliverable and the grader reads it as an HTML export, so every graded behavior is implemented as code cells in the notebook itself, under a heading that names the requirement, followed by the cells that run it and plot it. Only plumbing that no rubric line is about lives in `src/`: the LLM wrapper and the cached data tools. During development each component is built in its own notebook under `dev/`, so four people can commit in parallel without editing one file; the final notebook is assembled from those in the last week.
 
 | Requirement | Where it lives | Demonstrated by |
 |---|---|---|
@@ -68,7 +68,7 @@ The notebook is the deliverable and the grader reads it as a PDF, so every grade
 | Agent plans | Notebook section 4, `ResearchAgent.plan` | The printed plan for a symbol |
 | Agent uses tools dynamically | Notebook section 4, `ResearchAgent.run` + `src/tools.py` | Tool-call log per run |
 | Agent self-reflects | Notebook section 4, reusing the section 3 evaluator | Reflection output on the final report |
-| Agent learns across runs | Notebook section 4 + `memory/memory.json` | Two runs on one symbol; memory diff and the changed plan |
+| Agent learns across runs | Notebook section 4, `ResearchAgent.remember` | Two interleaved runs per symbol, each beside a memoryless twin run; memory and the improved first draft |
 
 ### Repository structure
 
@@ -80,7 +80,6 @@ not-financial-advice/
 │   └── tools.py       # yfinance tools with an on-disk cache
 ├── dev/               # one development notebook per component; merged into notebook.ipynb in week 4
 ├── data/cache/        # committed JSON responses from yfinance
-├── memory/            # memory.json, the agent's notes across runs
 ├── docs/              # contribution log, AI-use disclosure
 ├── setup.md           # environment and run instructions
 ├── pyproject.toml     # uv-managed dependencies
@@ -89,7 +88,7 @@ not-financial-advice/
 
 ### Roadblocks / challenges
 
-Getting reliable structured (JSON) output from the LLM, since the classifier, router, evaluator, and planner all depend on it. Making "learns across runs" visibly true rather than a file that gets written and never read. Schema drift and rate limits in `yfinance`, handled by the cache. Keeping every LLM loop bounded so nothing can run away. Exporting a long notebook to a PDF that is still readable.
+Getting reliable structured (JSON) output from the LLM, since the classifier, router, evaluator, and planner all depend on it. Making "learns across runs" visibly true rather than a file that gets written and never read. Schema drift and rate limits in `yfinance`, handled by the cache. Keeping every LLM loop bounded so nothing can run away. Exporting a long notebook to HTML that is still readable.
 
 ## Installation
 

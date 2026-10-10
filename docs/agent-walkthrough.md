@@ -1,0 +1,244 @@
+# The Investment Research Agent: a walkthrough
+
+This document guides a reader who has not opened the notebook through the agent in section 4 of `notebook.ipynb` (developed in `dev/agent.ipynb`): what it does, how data moves through it, and why it is built the way it is. It is organized under the three headings the project rubric asks the code comments to cover, so it can grow into the optional Supplemental Report. It is updated at each build step; the status table below says which parts exist in code and which are still design.
+
+| Part | Status |
+|---|---|
+| Memory store (`__init__`) | Built, step 1 |
+| Step registry, planner menu | Built, step 2 |
+| `plan()` | Built, step 3; lean-plan tuning waits for step 6 |
+| `run()` with `brief()`, `write_report()`, `report_criteria()` | Built, step 4 |
+| `reflect()`, `remember()` | Built, step 5 |
+| Demonstration and figures | Built, step 6 |
+| Real lane functions in place of stand-ins | All three in (Lane 1 on Oct 3, Lanes 2 and 3 on Oct 4) |
+| Repeated first-draft trials | Built, Oct 4 |
+
+## 1. Agent Design and Workflows
+
+### What the agent does
+
+Given a stock symbol, the Investment Research Agent decides which research steps to take, takes them, writes a short research note from what it found, grades its own note, and stores a lesson that changes how it writes the next time. It never recommends buying, selling, or holding; the project's name is a design constraint.
+
+The project distinguishes workflows from an agent in the sense of Anthropic's *Building Effective Agents*: in a workflow, our code fixes the sequence of LLM calls; in an agent, the LLM chooses the sequence. Sections 1 to 3 of the notebook are workflows. Section 4 is the agent, and it uses the three workflows as tools it can choose to call.
+
+### One research cycle
+
+```
+ 1 PLAN      Coordinator picks steps -> [{"tool", "args", "why"}]
+                 |
+ 2 EXECUTE   for each step, by name:
+               get_prices / get_fundamentals                (src/tools.py, cached)
+               run_chain          -> News Analyst            (section 1)
+               route_and_analyze  -> Router + Specialists    (section 2)
+             every step logged; a failed step is recorded, not fatal
+                 |
+            memory: {"symbols": {"AAPL": note}, "lessons": [...]}  <------------------+
+                 |                                                                    |
+ 3 WRITE     Writer drafts from the data and memory; Critic   (section 3, <= 2 rounds)|
+             grades each criterion; Writer revises                                    |
+                 |                                                                    |
+ 4 REFLECT   Reflector reads the run, above all the first draft's feedback            |
+               -> {"score", "note" for this symbol, "lesson" for any symbol}          |
+                 |                                                                    |
+ 5 REMEMBER  note replaces the symbol's note; a new lesson is added  ----------------+
+```
+
+The four agent functions the rubric requires map onto this cycle one to one: planning is step 1, dynamic tool use is step 2, self-reflection is step 4, and learning across runs is step 5 feeding the next run's step 3. Memory reaches the Writer, not the planner: an earlier design also gave it to the planner, but once the menu left one sensible plan, the planner had nothing to learn (see 2.4).
+
+### The agents
+
+The system is one agent loop staffed by named roles. Every LLM call carries its role through `chat(..., agent="Name")`, which records it in `llm.CALL_LOG`, and every pass of work from one role to another prints one line through `handoff(sender, receiver, content)`. The notebook output therefore reads as a transcript of who handed what to whom, the way the Module 7 lab's multi-agent team does, without a framework.
+
+| Agent | Owner | Job |
+|---|---|---|
+| Coordinator | Lane 4 | Plans the research and dispatches each step |
+| News Analyst | Lane 1 | Runs the prompt chain over recent news |
+| Router | Lane 2 | Labels each item earnings, news, or market |
+| Earnings, News, Market Specialist | Lane 2 | Analyze the items routed to them, each with its own data |
+| Writer | Lane 4 (drafts), Lane 3 (revises) | Writes and revises the research note |
+| Critic | Lane 3 | Scores a note against explicit criteria and lists what failed |
+| Reflector | Lane 4 | Turns a finished run into a note and a lesson for memory |
+
+### Plumbing
+
+Two small modules sit under every lane. `src/llm.py` holds `chat()`, the only path to the model (DeepSeek V4.1 Flash through the Nous Portal gateway); it returns text, or a parsed JSON object with one correction round, and it raises on a truncated or empty reply instead of passing a broken answer downstream. `src/tools.py` holds the three Yahoo Finance tools. Each caches its response as JSON under `data/cache/`, and the cache is committed, so every teammate and every rerun of the notebook sees identical data and the notebook runs offline.
+
+### Building before the lanes exist
+
+The agent depends on all three workflow sections, which are built in parallel by other team members. To build it before they delivered, `dev/agent.ipynb` carried a development-only cell of stand-ins with the same names, arguments, and return shapes as the real functions. The stand-in Critic judged each criterion separately and scored the share met, the design proposed to Lane 3, which Lane 3 adopted. All three lanes have now delivered, and that cell holds three imports from their script exports; nothing else in the agent changed when they swapped in. The contracts in the appendix are what made the swap safe. In `notebook.ipynb`, sections 1 to 3 define the same functions above section 4, so the import cell is not copied at assembly.
+
+### Why no agent framework
+
+The rubric grades the patterns, not a library. Plain Python keeps every decision visible in the exported notebook: the plan is a list the reader can print, the dispatch is a dictionary lookup, and memory is a dictionary. A framework such as LangGraph would add a dependency and hide the control flow that the grader needs to see.
+
+## 2. Agent Functions and Capabilities
+
+### 2.1 Plans (`plan`)
+
+The Coordinator makes one JSON-mode call. Its prompt holds the goal and a menu of available steps (what each returns, when it is worth running, and its allowed arguments); it does not read memory (see 2.4). It returns an ordered list of at most eight steps, each `{"tool", "args", "why"}`.
+
+Design choices:
+
+- **The model card's sampling, for every call.** Every agent samples at temperature 1.0, the model card's recommendation, which is also `chat()`'s default; the API's default top_p of 1.0 is within the card's range. An earlier design ran the planner, the Reflector, and the Critic at temperature 0, so that memory would be the only input differing between two runs on one symbol. Testing undid both halves of that reasoning. Temperature 0 was not repeatable on this gateway: the same empty-memory request planned all five steps in one session and three in another. And at temperature 0 the Critic sometimes reasoned aloud inside its JSON until it hit the token cap, which ended two demonstration runs; at 1.0 it graded as accurately and never truncated. Attributing a difference to memory is the job of the twin runs (see Evaluation and Iteration), which work at any temperature.
+- **The planner sees the goal and the menu, not the criteria or memory.** It is told the goal (a short factual note, no recommendation) and the cost of each step, and each step's `why` records its reasoning. With the news tool folded into `run_chain`, it plans the same four steps nearly every time (20 of 20 in one check); the choice is real, but the menu leaves one sensible plan.
+- **Unknown tools are kept, not filtered.** A step naming a tool that does not exist reaches the executor, which logs and skips it. The mistake stays visible and becomes something the Reflector can learn from.
+
+### 2.2 Uses tools dynamically (`run`)
+
+The executor walks the plan and calls each step by name from one dispatch table: the price and fundamentals tools from `src/tools.py` plus `run_chain` (section 1) and `route_and_analyze` (section 2). The news tool is not a step: `run_chain` fetches the same articles itself, so a plan with both read the news twice, and the chain's articles supply the headlines. Which tools run, and in what order, is the planner's choice, not ours; no line of our code fixes the sequence, which is what makes the tool use dynamic.
+
+The dispatch table names the four steps:
+
+```python
+STEPS = {
+    "get_prices": tools.get_prices,
+    "get_fundamentals": tools.get_fundamentals,
+    "run_chain": run_chain,
+    "route_and_analyze": route_and_analyze,
+}
+```
+
+Next to it, `MENU` is the text the Coordinator reads when it plans: one entry per step giving its arguments, what it returns, and what it costs in LLM calls (none for the data tools, one per article for the chain, two per routed article). Stating the cost is what gives a lean plan a reason to exist. The arguments shown are the ones whose responses are in the committed cache (`period="6mo"`); any other value still works but fetches live from Yahoo.
+
+Design choices:
+
+- **One special case for data flow.** `route_and_analyze` needs a batch of items. The executor passes it `run_chain`'s whole result when the plan ran the chain (the labeled articles, plus the summary Lane 2's News Specialist reads), and the raw cached news when it did not. Every other step is called as `tool(symbol, **args)`.
+- **Routing is capped at five articles.** It costs two LLM calls per article (one route, one specialist analysis), run one after another, and with all ten articles it was the slowest step of a run (20 calls, about 90 seconds). Five keep every specialist in play at half the cost.
+- **A failed step is recorded, not raised.** Each step runs inside a `try`; a failure is written to the run log with its error and the run continues. A research run that loses one source should still produce a note, and the failure becomes evidence for reflection.
+- **One compact view of the results.** Price history arrives as 125 daily closes, which would bloat every prompt. A `brief()` function reduces the results to the figures a note would cite, and the Writer, the Critic's criteria, and the Reflector all read that same view, so the numbers the Writer quotes are the numbers the Critic checks. It rounds fundamentals to two decimals (Yahoo's P/E arrives as 28.099874, and the Writer quotes exactly) and counts the chain's sentiment and topic labels, zeros included.
+- **The note goes through the section 3 loop.** The Writer's draft is passed to `evaluator_optimizer` as its generator, so every report the agent produces has been scored and, if needed, revised.
+- **The Writer quotes and never computes.** Its prompt says to quote figures exactly as given and derive none. A difference the Writer computes correctly (an 89.94-point gain from two closes) is still a figure the Critic cannot find in the reference data, and in testing it was graded as a mismatch.
+- **Risks come from the specialists.** The Writer is told to take the risks it discusses from Lane 2's specialist analyses and to cite the headline or figure each comes from. Routing otherwise left little trace in the notes, and a supported risk (criterion 4) is the criterion memory could not teach. Notes now carry a risks passage drawn from the routed articles; whether it lowers criterion 4 misses is not yet measurable, because those misses are rare and the Critic grades them inconsistently.
+- **Fixed criteria, whatever the plan gathered.** The Critic grades every note against the same seven criteria (price change, a fundamental with its unit, news sentiment as counts, a risk supported by a figure or headline, no recommendation, figures that match the data, and the most common news topic with its count). A plan that skipped a needed step yields a note that fails one. Only `run_chain` supplies sentiment counts, so a plan without it fails criterion 3.
+- **A criterion chosen so learning can show (disclosed).** Criterion 7 (name the most common news topic, with its count) was added because a first draft is unlikely to meet it without memory, and one lesson teaches it. Learning only appears when a first draft fails something memory can fix, and with six criteria first drafts had become good enough that whole demonstrations stored no memory. The Writer is never shown the criteria, so this is an analyst learning an editor's house standard from feedback. In the notebook's repeated trials (see Evaluation and Iteration), every first draft written without memory missed it (21 of 21) and none written with memory did. Nearly all of memory's measured effect is on this criterion, so the claim it supports is that memory teaches standards the Writer is never told, not that memory makes notes better in general. A caveat: Lane 1's topic labels are currently a catch-all, and the most common topic is usually "news"; defining the three topics in the chain's classify prompt is planned. A second candidate (where the close sits against its 52-week range) was missed 35% of the time with or without memory, so it was not learnable and was dropped.
+
+### 2.3 Self-reflects (`reflect`)
+
+Reflection takes the Critic's last grade of the final note from the writing loop, then the Reflector reads the whole run (the final note, the criteria with the reference data it was written from, the plan, the tool log, the score history, and the Critic's feedback) and returns a general lesson for what the first draft missed, such as "state the most common labeled topic with its count, from the topic counts in the reference data", plus a note specific to this symbol only when a miss depends on this symbol's data. Both are advice for the Writer. The Reflector learns from the first draft's feedback as well as the final grade, and a run whose first draft drew no feedback stores no note.
+
+Design choices:
+
+- **The Critic grades the text; the Reflector grades the process.** A low score says the note was weak. The Reflector reads the note beside the data it was written from, the plan, and the tool log, which can say why.
+- **Memory has to earn its place.** With the first Reflector prompt, memory made the Writer's next first draft worse on average (by 0.28 points against no memory, worse in 10 of 17 drafts; see the iteration log). The worst cases came from runs that had passed: the Reflector still wrote a note ("Run passed all criteria at 10/10 — keep the plan as-is … the only gap is criterion 4"), which contradicted itself and added a rule. Three rules in the prompt address what testing showed. A run with nothing to fix writes no note. A note never asks for less than a criterion requires (a lesson once told the Writer never to use labels like "elevated", while criterion 4 requires naming a risk, which takes that kind of judgment). Advice says what to do, not what to avoid, because rules about what to avoid accumulated and narrowed later notes. With these rules memory raised later first drafts by 0.63 points on average.
+- **Learn from the first draft.** Lane 3's writing loop revises a failing draft until it passes, and in testing first drafts scored 2 to 7 out of 10 before revision. A Reflector that saw only the final grade usually saw a pass and stored nothing, so the next run's first draft repeated the same mistakes and the loop paid to fix them again. Giving the Reflector the first draft's feedback tripled the runs that left memory (6 of 8, from 2 of 8) and raised the next first draft by 1.17 points on average. What it learns is what the loop keeps fixing: sentiment written as prose instead of counts, a market cap restated as "billion" twice so it read as trillions, a headline's "buy" copied into the note.
+- **A miss is a lesson by default.** When the Reflector chose between a note and a lesson, it sometimes kept a fix every symbol needed in one symbol's note: in one run AAPL's criterion 7 miss went into AAPL's note, NVDA's first draft repeated the miss, and the demonstration lost its cross-symbol comparison. The prompt now puts every failed criterion in the lesson unless meeting it depends on something only this symbol's data shows.
+- **Instructions, not figures.** Notes used to quote the run's values ("'news,' count 7"), but the chain's labels vary between runs, and the next AAPL run labeled 6 articles as news. A Writer that trusted the note over the data would fail criterion 6. Memory now says what to state and which part of the data holds it. Replaying the Reflector ten times on one run, notes with figures fell from 10 of 10 to 0 of 10.
+- **No note after a clean first draft, enforced in code.** The prompt asked for none, but the Reflector still wrote "keep the same approach" notes after two of three clean drafts, restating every criterion with the last run's figures; `reflect()` now drops the note when the first draft drew no feedback.
+- **The Reflector sees the lessons already stored** and is told not to restate one; `remember()` also skips a lesson that matches a stored one exactly.
+- **One grade per note.** The score reflection records is the writing loop's last grade, not a second Critic call. In testing, a second call on the same note disagreed with the first (a pass, then a 4), and the output paired one grade's score with the other's feedback.
+- **Criteria carry the facts.** `evaluate(text, criteria)` sees only the note and the criteria string. The criteria therefore include the reference figures from `brief()`; without them the Critic could check that a revenue figure is present but not that it is correct.
+
+### 2.4 Learns across runs (`remember`)
+
+Memory is a dictionary on the agent, created empty in `__init__`:
+
+```python
+self.memory = {"symbols": {}, "lessons": []}
+```
+
+`symbols` maps a symbol to one note about it. `lessons` holds notes that apply to any symbol. `remember(symbol, note, lesson)` replaces the symbol's note with the new one, if there is one, and adds the lesson if it is new; the Reflector reads the stored note first and carries forward whatever in it still applies. `recall(symbol)` renders this symbol's note and every lesson as one block of text, which the Writer reads when it drafts on the next run.
+
+Design choices:
+
+- **Memory is the Writer's.** A note can only fix what its reader controls. The first design gave memory to the planner alone, and the first real failure was in the writing; with no way to change the writing, the planner invented a verification step that did not exist. Memory then reached both, with notes tagged for the plan or the writing, and once memory changed a plan in a demonstration (it added `run_chain` after a lean plan failed the sentiment criterion). But plan learning only fired when run 1 happened to plan without the chain, and once the news tool was folded into the chain, every plan included it and the planner had nothing left to learn. Plan learning was dropped for simplicity: memory now reaches the Writer alone, and the tags and the planner's memory rules are gone.
+- **One note per symbol.** Notes used to accumulate, oldest first. In one end-to-end run, all three entries in memory said the same thing (name a specific risk), and a later note had absorbed a false penalty from the Critic. Replacing the note each time, with the Reflector carrying forward what still applies, keeps memory bounded and lets a stale or mistaken note drop out.
+- **Two kinds of memory.** A lesson such as "always name the most common news topic with its count" should change every note. A note should change only one symbol's next note, for a miss that only that symbol's data explains. Most misses are about content every note needs, so in practice memory is mostly lessons, and a lesson learned on one symbol shows up in the other's next first draft.
+- **In memory, not on disk.** An earlier design wrote memory to `memory/memory.json`. Only the agent reads or writes memory, so nothing else depends on the file, and a file would carry notes from the last session into the next run of the notebook. The run exported for submission would then begin with memory already full, and the first run would no longer be a cold start. A dictionary on the agent starts empty every time the notebook runs, so the demonstration is reproducible: the learning shown is learning that happened inside that execution.
+
+## 3. Evaluation and Iteration
+
+The demonstration runs one agent four times, interleaved: AAPL, NVDA, AAPL, NVDA. Each run is `run`, then `reflect`, then `remember`.
+
+- **Each symbol's second run** reads the note its first run wrote. Same symbol, same data; the new input is memory.
+- **NVDA's first run** has no notes of its own but reads AAPL's lessons, so a difference there shows a lesson transferring across symbols.
+- **Twin runs.** Every run with memory to read gets a twin: the same `run()` on the same symbol by a new agent with empty memory, made right after it. The two differ only in memory, so the twin is the control for the whole run, and any difference between their notes and grades is memory's. The twin needs no code of its own, because a new `ResearchAgent()` is the no-memory condition. One pair per run is one sample, and at temperature 1.0 the planner and the Critic vary between identical requests, so a single pair suggests rather than proves; the evidence is the repeated trials below.
+- **Repeated trials.** After the demonstration, every run that had a twin has its first draft written seven more times with the memory its Writer read and seven times with empty memory, from that run's own stored data, and the Critic grades each draft once. Data, Writer, and Critic are the same on both sides, so unlike a twin, which plans and labels the news again, only memory differs. This makes the measurement part of the submitted notebook: it reruns every time the notebook does, on the real lanes. It replaced an earlier figure (first drafts meeting every criterion rose from 25% to 74% with memory) that came from a test outside the notebook, on the development stand-ins, whose script was not kept and so could not be rerun.
+- **Why twins.** An earlier design gave each run a control that only planned, and printed a verdict comparing three plans. At temperature 1.0 two of three verdicts in one export read "planner noise is too large to read from one sample", and plan-only controls could not see the effect memory most often had in testing, which came through the Writer (AAPL 4 to 10 with an unchanged plan). Comparing whole runs covers the writing path with one mechanism and less code.
+- **Why interleaved.** Learning can only appear when a run that failed is followed by a run that reads its memory, and which run fails is chance. The first order tried (AAPL, AAPL, NVDA) put NVDA's only run last; in the first end-to-end test that was the run that failed, and nothing read its note. Interleaving gives each symbol a second run. It does not guarantee an improvement: a second run can regress, as one did in testing, and only a third would show the correction.
+
+The outputs:
+
+1. For every run with a twin: the memory its Writer read, its plan with each step's reason, and both notes, each with its first-draft and final grades and what the Critic said about its first draft.
+2. Everything in memory after the last run.
+3. The Critic's score of each first draft, per run, as two lines: the learning agent, and the memoryless twins. First drafts, because Lane 3's writing loop revises most drafts to a pass, and memory's effect is on what the Writer gets right before any revision.
+4. Team status: LLM calls and tokens per agent across the demonstration, read from `CALL_LOG`.
+5. The repeated trials: per condition, the mean first-draft score, the share of first drafts meeting every criterion, and the share missing each criterion; then the share meeting every criterion per run.
+
+Results from the latest full run (October 4, all three real lanes, 184 demonstration calls plus 84 trial calls, no errors or retries). The lesson AAPL learned reached NVDA, and memory won or tied every twin comparison: first drafts of 10, 10, and 9 against 9, 9, and 9. Memory ended as two lessons and no notes, with no figures in either. The trials:
+
+| First drafts (21 per condition) | With memory | Without memory |
+|---|---|---|
+| Met every criterion | 100% | 0% |
+| Missed criterion 7 (the most common topic, with its count) | 0% | 100% |
+| Missed criterion 3 (sentiment as three counts) | 0% | 14% |
+| Missed criterion 4 (a supported risk) | 0% | 5% |
+| Mean score | 10.0 | 8.6 |
+
+No draft on either side missed criteria 1, 2, 5, or 6. Memory's effect is almost entirely criterion 7, the criterion added so that learning could show (see 2.2).
+
+A run that raises (a truncated reply, a timeout) is retried once: at temperature 1.0 such failures are rare and random (4 in about 600 test calls), so a second attempt usually succeeds, but a demonstration makes 60 to 100 calls and would otherwise often lose a run. Retrying is safe because only `remember()` changes memory. Two failures skip the run and the demonstration continues. The learning agent's run, reflection, and memory update come before its twin, and a twin that fails twice only leaves that run without a comparison.
+
+Known variation: every agent samples at temperature 1.0, so plans, scores, and wording differ between exports of the notebook. In testing, the planner chose the same four-step plan 20 times in 20, and the Critic's score for one note varied with a standard deviation of about 1.5 points while its pass or fail held. The twins are what make any one export readable. With all three real lanes a run makes about 26 LLM calls (11 in the chain, 10 in routing, 2 to 5 in the writing loop, plus the planner and the Reflector), a full demonstration with three twins about 180, and the repeated trials 84 more; together roughly 11 minutes of model time.
+
+### Iteration log
+
+Problems found while building, and what changed because of them.
+
+| Date | Observed | Change |
+|---|---|---|
+| 2026-10-01 | Asked to revise a flawed note, the Writer returned commentary about the note's problems instead of a revised note. The prompt said what to fix but not what to return. | Revision prompts end with "Reply with the revised report only, no commentary on what changed." |
+| 2026-10-01 | When the criteria named a data field (`revenue_b`), the revised note quoted the field name in its prose. | Criteria and the Writer prompt describe figures in plain language ("annual revenue in billions of USD"); field names stay in the data. |
+| 2026-10-01 | With empty memory the planner chose all five steps, including `get_news` before `run_chain`, "so later steps have source material". The menu had not said that `run_chain` fetches the news itself. | The menu now says so. The planner still chose all five steps. |
+| 2026-10-01 | The Critic, sampling at temperature 1.0, gave a correct 89.94-point difference a failing mark and wrote partly incoherent feedback; the revision then scored lower than the draft (3, then 0). | The Writer now quotes figures and computes none. The development Critic runs at temperature 0, after which its feedback named real, specific problems. Recommended to Lane 3: grade at temperature 0, and return the best-scoring draft, not the last. |
+| 2026-10-01 | With a plan that skipped `run_chain`, the Writer invented sentiment counts (14 positive, 9 negative, 22 neutral, against 10 headlines). The temperature-0 Critic caught it under criteria 3 and 6. | None needed: this is the failure the learning loop is meant to catch and correct on the next run. |
+| 2026-10-01 | The Critic failed a P/E rounded to 38.6 against 38.591274. | Criterion 6 now allows rounding. |
+| 2026-10-01 | One Writer call took 49.6 seconds against a 60-second timeout. A timeout inside the writing loop is not caught per step, so it would end the run. | Watching; not changed. |
+| 2026-10-01 | Compared four model variants on the gateway: the empty-memory AAPL plan 10 times each in two interleaved batches, and one fixed note graded 5 times each by the Critic at temperature 0. Same tool sequence: v4.1 Flash 9 of 10, v4.1 Flash pinned to US servers 10 of 10, V4 Flash 6 of 10, V4 Flash 0731 5 of 10. Grading a note that lacked sentiment counts and a named risk, v4.1 Flash failed it every time (score 3 to 4, naming both gaps, plus one false claim that the 52-week range was missing from the data); V4 Flash and V4 Flash 0731 passed it with 8 to 10, and V4 Flash returned the criteria list as its feedback. The 0731 snapshot reported different backend fingerprints across calls, evidence that one model name is served by more than one backend. | Stay on v4.1 Flash. The older models plan less repeatably and grade leniently. The fresh-agent control is added to the demonstration. |
+| 2026-10-02 | First two full cycles on AAPL. Every article in the stand-in chain is labeled neutral, and `Counter` omits labels with no articles, so the data read `{"neutral": 10}`. The Writer correctly stated 0 positive and 0 negative; the Critic could not find those zeros in the data and failed the note, and the Reflector turned the false failure into a wrong lesson ("report only the values present rather than inferring the missing ones as zero"). | `brief()` now always lists all three sentiment labels, zeros included. A representation quirk in the data became a false grade and then a false memory; the reference data a Critic checks against has to be complete. |
+| 2026-10-02 | Following that note, the run-2 planner added a step that does not exist (`verify_sentiment_counts`). The executor logged it as unknown and continued; the Reflector read the log and wrote "Drop the verify_sentiment_counts step: it is not in the tool menu". | Reflection corrected the agent's own planning mistake on the next cycle. The cause is that the run-1 failure was a writing problem, which no change to the plan can fix; see 2.4. |
+| 2026-10-02 | With memory reaching the Writer and the Reflector shown the menu, four AAPL cycles on the stand-ins gave Critic scores of 10, 6, 9, 10. The cycle-2 failure was diagnosed as a writing failure ("must report the news sentiment exactly as the labeled counts show"), with a matching lesson; cycle 4's first draft scored 10 with no revision. No step was invented. | One sequence, so suggestive only: the cycle-2 drop after a perfect cycle 1 shows how much a single score moves with the Writer at temperature 1.0. |
+| 2026-10-02 | One Critic reply hit the 800-token cap inside `reflect()` and `chat()` raised, ending the run. The next 11 Critic replies used 17 to 192 tokens. Cause unknown: a greedy-decoding repetition loop at temperature 0 is the leading guess, and raising the cap would not cure that. | Watching. `chat()` raises without the text, so the next occurrence cannot be diagnosed either; including the end of a truncated reply in the error is proposed for `src/llm.py`. |
+| 2026-10-02 | First end-to-end run of the demonstration on the stand-ins: 21 calls, about 24,600 tokens, 2 minutes 18 seconds. AAPL run 1 scored 10, so its note said to keep the plan; run 2 matched both run 1 and the control, and the verdict line reported that memory did not change the plan. NVDA was the run that failed (the Writer invented sentiment counts) and produced a specific note and lesson, but no later run read them. | The order assumes the first run fails, which is chance. Proposed: interleave AAPL, NVDA, AAPL, NVDA, so each symbol's second run reads its own note and whichever run fails is followed by one that can show the correction. |
+| 2026-10-02 | Second end-to-end run. AAPL run 1's note said to ground risks in figures rather than in a headline's claim; AAPL run 2 dropped `run_chain` and `route_and_analyze`, citing that lesson, while the empty-memory control kept all five steps, so the verdict line credited memory with the change. With no labeled news, the Writer invented sentiment counts (2 positive, 0 negative, 1 neutral from 10 headlines) and scored 4. Reflection caught it: the new AAPL note says to run `run_chain` before stating counts, and a new lesson generalizes it. No later run read either. | The control attributes a change correctly in both directions: memory can make a plan worse, and the demonstration has to be able to show the correction. Feeds the run-order decision. |
+| 2026-10-02 | The Writer wrote British spellings ("capitalisation", "categorised", "defence") into a final note, which lands in the graded export. | The Writer prompt now ends "Write in American English." Three test notes afterward used "capitalization" and no British forms. |
+| 2026-10-02 | Adversarial review of the agent notebook by a second model (Codex, GPT-6 Astra), told the goal of minimal, interpretable code. Seven findings applied: the documented swap to the real lanes omitted `evaluate`, which `reflect()` needs; the Reflector never saw the note or the reference data, though this document said it read them; any exception outside a plan step ended the demonstration; the improvement from memory was shown only as a score, never as the two notes; the verdict claimed causation from one control and ignored arguments; two malformed plans could crash the tables; and `run()` returned a per-run call log nothing read. | Each fixed as listed in this section and in 2.3. Long source lines (59 over 99 characters) left as they are: the notebook is submitted as HTML, where code scrolls rather than clips. |
+| 2026-10-02 | A truncation ended a demonstration run a second time, inside the writing loop. The model card for DeepSeek V4.1 Flash recommends temperature 1.0 with top_p 0.95 or 1.0 and says nothing about temperature 0. Measured with an 800-token cap: the Critic truncated 1 of 60 times at temperature 0 and 0 of 120 at 1.0 (top_p 0.95 or 1.0); the Writer never exceeded 330 tokens in 120 calls. The captured truncation was not a repetition loop: the Critic reasoned aloud inside its JSON feedback string until the cap. At 1.0 the Critic graded as accurately (every note lacking sentiment counts failed, at every setting) with a wider score spread (standard deviation 1.5 against 0.9). The planner chose the five-step plan 8 of 10 times at 1.0, against 9 of 10 at 0. | `chat()` now names the agent and shows the end of a truncated reply. Every call now samples at the card's temperature, 1.0: the temperature-0 settings on the planner, the Reflector, and the development Critic are removed, and the earlier recommendation that Lane 3 grade at temperature 0 is withdrawn. |
+| 2026-10-02 | With every agent at temperature 1.0, two of three plan-only control verdicts in one export read "planner noise is too large to read from one sample", and the export showed no attributable learning. Plan-only controls also could not see memory's most common effect in testing, which came through the Writer. | The plan-only control and its verdict were replaced by twin runs: a full run by a new agent with empty memory beside every run that has memory. One mechanism covers plan and writing, and the comparison code shrank. |
+| 2026-10-02 | Controlled test of memory, with the gathered data held fixed so only memory varied: six first runs (AAPL and NVDA, three each) produced realistic memories; each memory was given to the Writer three times and the planner twice, against notes and plans made with no memory. Current Reflector prompt: memory changed the next first draft by -0.28 points on average (worse than no memory in 10 of 17 drafts); it raised complete plans from 7 of 10 to 12 of 12. Revised prompt (notes tagged `Plan:` or `Writing:`, none after a passing run, never asking for less than a criterion requires, advice phrased as what to do): +0.63 points (worse in 6 of 18), plans 12 of 12, a third fewer notes stored. Routing each reader only its own tag: no further gain. The gap between prompts is about 1.4 standard errors, suggestive rather than conclusive, but every twin result and the quoted worst cases point the same way. A probe of 40 planner calls found no hidden reasoning tokens, so the one empty planner truncation seen was not systemic; the Critic still truncated once in about 100 calls at temperature 1.0. | The revised Reflector prompt is in; `remember()` skips a null note; the development Critic gets `max_tokens=1500`, and Lane 3 is advised to give `evaluate` the same. |
+| 2026-10-03 | Second memory test, aimed at making memory work harder. The first attempt produced almost no memories (0 to 2 of 8 runs): the Reflector saw only the final grade, which the writing loop had usually rescued to a pass, while first drafts averaged 4.7 to 5.5 out of 10 with no memory. Rerun with the Reflector also reading the first draft's feedback: 6 of 8 runs left memory, which raised the next first draft by 1.17 points (n=24, worse in 8) and transferred to the other symbol at +0.75 (n=12). Adding example sentences to notes and promoting writing failures to lessons: +0.89, transfer +0.07. Also having the Writer follow the tags with memory first: +0.51, transfer +0.85. Neither addition beat the simpler version; differences are within noise (about 0.4 points of standard error, plus about 0.6 from baseline drift between experiments). The development Critic once returned JSON with no score. | The Reflector learns from the first draft; the other two changes were not adopted. Lane 3 is advised to check the keys of `evaluate`'s reply. |
+| 2026-10-03 | Read a full end-to-end run (4 runs, 3 twins, 35 calls). The learning loop worked: AAPL's risk lesson reached NVDA, and both NVDA first drafts were clean. Four problems. The Critic graded inconsistently: it gave 2/10 to a note whose feedback marked criteria 2 and 5 "Satisfied", listed passed criteria as failures, failed a risk drawn from a headline, and penalized a no-recommendation disclaimer; memory then learned those quirks ("included hedging about a recommendation"). Stand-in text leaked into notes ("the accompanying analyses are stand-in text"). All three memory entries repeated one instruction. Figures read badly (P/E 28.099874). | Criteria 4 and 5 reworded. The development Critic judges each criterion separately and scores the share met, so feedback lists failures only; proposed to Lane 3. Lane 1's real chain replaces its stand-in. Memory keeps one note per symbol, which the Reflector carries forward. `brief()` rounds fundamentals. |
+| 2026-10-03 | First demonstration with the real chain. AAPL run 1 planned without `run_chain` and its first draft failed criterion 3; the note "add run_chain so run_chain's labeled output supplies the counts" changed AAPL run 2's plan, while its memoryless twin planned without the chain again: the first plan change attributable to memory in a demonstration. Two faults: a Writer note ran past 800 tokens and ended NVDA run 2, and NVDA run 1 got a twin although memory held nothing about NVDA, so its 10 against 7 compared two memoryless runs and measured only noise. | The Writer gets 1500 tokens; a twin runs only when memory holds a note on the symbol or a general lesson. |
+| 2026-10-03 | The next demonstration stored no memory at all: every first draft was clean. Measured with the data held fixed: with the full plan, 11 of 12 AAPL and 5 of 12 NVDA first drafts met every criterion; with a plan that skipped `run_chain`, 0 of 24 did. Whether a demonstration showed learning had come down to whether run 1 happened to plan without the chain. | A learnable criterion was added (criterion 7; see 2.2). The Reflector now puts a miss that does not depend on the symbol's data into a general lesson; with it, 6 of 6 memories carried a lesson, against 1 of 6 before, and lessons transferred to the other symbol. |
+| 2026-10-03 | Tested the model card's agentic sampling (top_p 0.95) against the default (top_p 1.0) at temperature 1.0, 150 calls each: no failures in either, the same longest replies (Writer 351 and 362 tokens, Critic 392 and 371), the same mean first-draft score (8.55 and 8.57), and a slightly less consistent planner at 0.95 (24 and 18 of 30). Repetition and presence penalties were considered and not tested: only one of the failures seen was repetition, and penalties discourage the repeated JSON keys and figures these replies need. | No sampling change. A failed demonstration run is retried once instead. |
+| 2026-10-03 | One test lost every call to `APIConnectionError` partway through; the gateway answered normally minutes later. | Rerun unchanged. A gateway outage during the final export would fail every call, which a retry cannot fix; export when the gateway is healthy. |
+| 2026-10-03 | Two full demonstrations with the final design (criterion 7, lessons for data-independent misses, retry): no notebook errors, 125 and 112 calls. Learning happened in both: AAPL run 1's first draft missed criterion 7 each time and stored a general lesson that every later run read, NVDA included. The retry recovered a twin whose Writer looped past 1500 tokens. But the twin comparisons were mostly ties on final scores (10 against 10 four times out of six; memory won 9 against 7 and 10 against 9, and lost 7 against 10 once), because the writing loop revises both drafts to a pass while memory's effect is on the first draft. | Each note now shows its first-draft and final grades and the Critic's feedback on the first draft, and the figure plots first-draft scores. |
+| 2026-10-03 | Plans often included the news tool alongside `run_chain`, which fetches the same cached articles itself (its first stage calls `tools.get_news`), so those plans read the news twice; some plans dropped it, correctly. | The news tool is no longer a planner step; `brief()` takes the headlines from the chain's articles, so they still reach the Writer and the Critic's reference data. Routing still falls back to the raw news when a plan skips the chain. |
+| 2026-10-03 | With the news tool folded into `run_chain`, 20 of 20 plans were the same four steps, so plan learning (which fired only when run 1 planned without the chain) had nothing left to learn. | Plan learning dropped: the planner no longer reads memory, the Reflector writes notes and lessons for the Writer only, and the `Plan:`/`Writing:` tags, the planner's memory rules, and the plan comparison table are gone. |
+| 2026-10-03 | Full demonstration with writing-only memory and first-draft grades shown: no notebook errors, 112 calls. First drafts, memory against twin: NVDA run 1 9 against 7 (reading only AAPL's lesson, it named the most common topic; the twin missed it), AAPL run 2 10 against 10, NVDA run 2 9 against 7 (the twin again missed criterion 7). Criterion 4 (a supported risk) stayed missed on NVDA with memory: a note asking for a risk anchored to a figure did not fix it. | None for criterion 7. Criterion 4 is the agent's weakest learning target: it asks for a judgment the Critic grades strictly, where criterion 7 asks for a fact. |
+| 2026-10-04 | Lanes 2 and 3 delivered (#4, #3). Lane 3 adopted the per-criterion Critic, reply checking with one retry, a 1500-token budget, a loop that ends on a grade, and keeping the best-scoring draft. Two agent cycles with all three real lanes ran clean (37 calls each before the routing cap); the AAPL lesson reached NVDA's first draft through all three. One cycle failed in the planner: it used all 800 tokens and returned nothing visible, the second such event. | The stand-ins were replaced by imports; routing gets the chain's whole result and the first five articles; the planner gets 1500 tokens, with the demonstration's retry as the backstop. |
+| 2026-10-04 | Full demonstration with all three real lanes: no notebook errors, no retries, 180 calls, 637 seconds of model time, 100 handoff lines. First drafts, memory against twin: NVDA run 1 10 against 7, AAPL run 2 10 against 9, NVDA run 2 10 against 9; every twin missed criterion 7, and every memory run met it, NVDA run 1 from AAPL's lesson alone. Twice the Reflector wrote a "keep the same approach" note after a clean first draft, where its prompt asks for none. | None yet; the stray notes did no harm in this run. |
+| 2026-10-04 | The memory figure in the docs and the PR (25% to 74% of first drafts meeting every criterion) came from a test run outside the notebook on the stand-ins; its script was not kept, so nobody could rerun it, and the notebook itself showed only three twin pairs. | A repeated-trial cell measures memory inside the notebook (see above). First run of it: 13 of 14 first drafts met every criterion with memory, 0 of 14 without; every draft without memory missed criterion 7. |
+| 2026-10-04 | The same run showed three memory problems. AAPL run 1's criterion 7 miss went into AAPL's note, not a lesson, so NVDA run 1 had no memory to read, repeated the miss, and got no twin. Notes quoted the run's figures ("'news,' count 7"), while the next AAPL run's chain labeled 6. "Carry forward what still applies" turned AAPL's note into a 100-word restatement of every criterion. A side check also found that the chain and the router, labeling the same ten articles with the same three labels, agreed on 6 of 10 (AAPL) and 5 of 10 (NVDA): the chain, whose prompt does not define the labels, called most articles "news". | Misses go to lessons by default; memory holds instructions, not figures; `reflect()` drops a note after a clean first draft; the Writer takes risks from the specialist analyses. Replaying the Reflector ten times per prompt on one run: notes with figures 10 of 10 before, 0 of 10 after (both prompts wrote a lesson every time, so that replay could not confirm the lesson change). Full rerun: the lesson reached NVDA, three twins ran, and the trials met every criterion in 21 of 21 first drafts with memory against 0 of 21 without. Topic definitions for the chain go to Lane 1. |
+| 2026-10-01 | Adding a research budget in LLM calls to the planner prompt made the first plan leaner in some runs, but results swung with small wording changes and the planner exceeded the budget it was given. With a stored note from a failed run, every variant changed the plan (dropped `get_news`, added `run_chain`). | No budget for now. Tuning the planner against invented notes fits noise; it waits for step 6, when real Critic feedback produces real notes. |
+
+## 4. Areas to build on
+
+- **Route the Critic's feedback back to a specialist.** Today a failed criterion leads the Writer to revise its prose. A stronger loop would send "no earnings figure" to the Earnings Specialist for a new analysis before the rewrite.
+- **Replan after a failure.** The executor runs the plan once. A Coordinator that revises the remaining steps when a tool fails would turn a logged failure into a recovered one within the same run.
+- **Persistent memory with pruning.** Saving memory between sessions is a small change (write the dictionary to JSON after `remember`), but notes accumulate. A real deployment would summarize or expire old notes so the Writer's prompt does not grow without bound.
+- **More data sources as tools.** SEC EDGAR filings and FRED macroeconomic series fit the same pattern: one cached function per source, one line in the dispatch table, one entry in the planner menu.
+- **Evaluate the evaluator.** The Critic is an LLM grading an LLM. Scoring a handful of notes by hand and measuring agreement with the Critic would say how far its scores can be trusted.
+- **More symbols.** Two symbols show the mechanism. Evidence that memory improves notes in general would need many symbols and repeated runs, compared against an agent with memory switched off.
+
+## Appendix: data shapes
+
+| Function | Lane | Returns |
+|---|---|---|
+| `run_chain(symbol)` | 1 | `{"articles": [{"title", "summary", "sentiment", "topic", "entities"}], "summary": str}` |
+| `route_and_analyze(symbol, items)` | 2 | `[{"item", "route", "analysis"}]` |
+| `evaluate(text, criteria)` | 3 | `{"score": 1-10, "pass": bool, "feedback": list[str]}` |
+| `evaluator_optimizer(generate, criteria, max_rounds=2)` | 3 | `{"final": str, "history": [{"round", "score", "pass", "feedback"}]}` |
+| `ResearchAgent.plan(symbol)` | 4 | `[{"tool", "args", "why"}]`, at most 8 |
+| `ResearchAgent.run(symbol)` | 4 | `{"symbol", "plan", "log", "results", "criteria", "report", "history"}` |
+| `ResearchAgent.reflect(symbol, run_result)` | 4 | `{"score", "note", "lesson"}` |
+| `ResearchAgent.remember(symbol, note, lesson=None)` | 4 | nothing; updates `self.memory` |
