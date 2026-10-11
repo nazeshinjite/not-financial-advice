@@ -108,6 +108,11 @@ def _fetch_news(symbol, limit):
             "published": content.get("pubDate"),
             "url": (content.get("canonicalUrl") or {}).get("url"),
         })
+    # Raise rather than return [], which the cache would keep and replay on every later run.
+    # On 2026-10-11 Yahoo's news endpoint returned 404 and yfinance 1.7.0 gave back an empty list.
+    if not articles:
+        raise ValueError(f"No news returned for {symbol!r}; Yahoo's news endpoint may be down. "
+                         "Run from the committed cache instead.")
     return articles
 
 
