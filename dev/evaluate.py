@@ -18,14 +18,16 @@ import pandas as pd
 
 sys.path.insert(0, "..")  # this notebook lives in dev/; make src/ importable
 
-from src import llm, tools  # noqa: E402
-from src.llm import chat, handoff  # noqa: E402
+from src import llm, tools
+from src.llm import chat, handoff
 
 
 # Generate an analysis, score it against explicit criteria, refine it from the feedback, at most two rounds.
 # 
 # **Contract:** `generate_analysis(symbol, context) -> str`; `evaluate(text, criteria) -> {"score": 1-10, "pass": bool, "feedback": list[str]}`, each feedback item naming the criterion it failed; `refine(text, feedback) -> str`; `evaluator_optimizer(generate, criteria, max_rounds=2) -> {"final": str, "history": [{"round", "score", "pass", "feedback"}]}`.
 # `generate` is a zero-argument callable so the agent can pass its own report writer.
+# 
+# **Extra keys beyond the contract** (callers may ignore them): `evaluate()` also returns `checks`, one `{"number", "reason", "met"}` verdict per criterion; `evaluator_optimizer()` also returns `drafts`, every version in order. When a revision scores lower than an earlier draft, the earlier draft is kept as `final` and its grade is repeated as the last `history` entry, marked `"kept": true`, so `history[-1]` is always the grade of `final`.
 # 
 # ### How the loop works
 # 
