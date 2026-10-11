@@ -81,6 +81,7 @@ def route(item):
     label = str(result.get("route", "")).strip().lower()
 
     if label not in VALID_ROUTES:
+        print(f"Router returned {label!r}; routing to news")
         label = "news"
 
     return label
