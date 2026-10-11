@@ -4,7 +4,7 @@ An agentic AI system that researches a stock: given a ticker symbol, it plans it
 
 This project is part of the **AAI-520: Natural Language Processing and GenAI** course in the Applied Artificial Intelligence program at the **University of San Diego (USD)**.
 
-**Project status:** Planned (Fall 2026; final deliverable due Oct 19, 2026)
+**Project status:** Assembled; final run and export pending (Fall 2026; final deliverable due Oct 19, 2026)
 
 ## Objective
 
@@ -78,7 +78,7 @@ not-financial-advice/
 ├── src/
 │   ├── llm.py         # chat() wrapper: retries, timeouts, JSON mode, endpoint from .env
 │   └── tools.py       # yfinance tools with an on-disk cache
-├── dev/               # one development notebook per component; merged into notebook.ipynb in week 4
+├── dev/               # one development notebook per component; merged into notebook.ipynb at assembly (week 6)
 ├── data/cache/        # committed JSON responses from yfinance
 ├── docs/              # contribution log, AI-use disclosure
 ├── setup.md           # environment and run instructions
