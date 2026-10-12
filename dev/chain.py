@@ -28,13 +28,13 @@ from src.llm import handoff
 
 
 def ingest(symbol):
-    # Stage 1: the plumbing does the fetching; this returns the cached articles.
+    # Fetch cached news articles for the requested company symbol.
     return tools.get_news(symbol)
 
 
 
 def preprocess(articles: list[dict], nlp, max_tokens: int = 300) -> list[dict]:
-    # Stage 2: no LLM. Deduplicate, strip, truncate. spaCy or plain Python.
+    # Remove duplicate or untitled articles and trim their text for later stages.
     seen_titles = set()
     preprocessed_articles = []
     for article in articles:
@@ -69,7 +69,7 @@ class _ClassificationValidationError(ValueError):
 def classify(article: dict, symbol: str) -> dict:
     sentiment=["negative","neutral","positive"]
     topic=["earnings","news","market","other"]
-    # Stage 3: one chat(..., json_mode=True) call per article -> {"sentiment", "topic"}.
+    # Classify article sentiment and topic, retrying once if the returned labels are invalid.
 
     System=(
         "You are a financial news analyst. Classify the article using its title, summary, and company symbol.\n"
@@ -128,7 +128,7 @@ def classify(article: dict, symbol: str) -> dict:
 
 
 def extract(article, nlp):
-    # Stage 4: entities and figures. spaCy NER (en_core_web_sm is installed) or one JSON call.
+    # Extract named entities from the article title and summary with spaCy.
     title=article.get("title")
     summary=article.get("summary")
     title_doc=nlp(title)
@@ -147,7 +147,7 @@ def extract(article, nlp):
 
 
 def summarize(symbol, articles):
-    # Stage 5: one chat() call over every labeled article -> one grounded paragraph.
+    # Synthesize labeled articles into a concise, source-grounded paragraph for the symbol.
     if not articles:
         return f"No news articles were available for {symbol}."
 
@@ -182,7 +182,7 @@ def summarize(symbol, articles):
 
 
 def run_chain(symbol):
-    # The function the agent calls. Runs the five stages in order.
+    # Run the news-processing stages in order and return labeled articles with a summary.
     import spacy
 
     # Load spaCy model (disable unnecessary pipeline components for speed)
@@ -212,6 +212,7 @@ def run_chain(symbol):
 
 
 def visualize(result: dict):
+    # Display the summary, article details, and sentiment/topic distributions.
     from html import escape
 
     import matplotlib.pyplot as plt
