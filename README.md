@@ -4,7 +4,7 @@ An agentic AI system that researches a stock: given a ticker symbol, it plans it
 
 This project is part of the **AAI-520: Natural Language Processing and GenAI** course in the Applied Artificial Intelligence program at the **University of San Diego (USD)**.
 
-**Project status:** Assembled; final run and export pending (Fall 2026; final deliverable due Oct 19, 2026)
+**Project status:** Final run committed (Fall 2026; final deliverable due Oct 19, 2026)
 
 ## Objective
 
