@@ -28,7 +28,9 @@ CALL_LOG = []
 
 
 # Make one API call and return the reply text. Raises on a reply that was cut off by
-# max_tokens (retrying under the same budget cannot help) and on an empty reply.
+# max_tokens (retrying under the same budget cannot help) and on an empty reply. The one
+# exception: a reply that used the whole budget yet holds no text (twice in about 280 calls,
+# and not once in 60 test calls) is sent once more before it raises.
 def _complete(messages, json_mode, max_tokens, temperature, think, agent):
     if not MODEL:
         raise RuntimeError("LLM_MODEL is not set. Copy .env.example to .env and fill it in.")
@@ -41,6 +43,19 @@ def _complete(messages, json_mode, max_tokens, temperature, think, agent):
         # (GLM does) is not a drop-in.
         options["extra_body"] = {"reasoning": {"enabled": False}}
 
+    text, finish_reason = _call(messages, max_tokens, temperature, options, agent)
+    if finish_reason == "length" and not text.strip():
+        text, finish_reason = _call(messages, max_tokens, temperature, options, agent)
+    if finish_reason == "length":
+        # The end of the reply shows what the model was doing when it ran out: rambling, looping, or long.
+        raise ValueError(f"Reply truncated at max_tokens={max_tokens} ({agent}); raise it. It ended: {text[-200:]!r}")
+    if not text.strip():
+        raise ValueError("The model returned an empty reply.")
+    return text
+
+
+# Send the request once, log it, and return the reply text and why it ended.
+def _call(messages, max_tokens, temperature, options, agent):
     started = time.time()
     response = client.chat.completions.create(
         model=MODEL, messages=messages, max_tokens=max_tokens, temperature=temperature, **options
@@ -53,13 +68,7 @@ def _complete(messages, json_mode, max_tokens, temperature, think, agent):
         "completion_tokens": usage.completion_tokens if usage else None,
         "seconds": round(time.time() - started, 2),
     })
-    text = choice.message.content or ""
-    if choice.finish_reason == "length":
-        # The end of the reply shows what the model was doing when it ran out: rambling, looping, or long.
-        raise ValueError(f"Reply truncated at max_tokens={max_tokens} ({agent}); raise it. It ended: {text[-200:]!r}")
-    if not text.strip():
-        raise ValueError("The model returned an empty reply.")
-    return text
+    return choice.message.content or "", choice.finish_reason
 
 
 # Parse a JSON-mode reply. Only a JSON object satisfies the contract; an array or a
